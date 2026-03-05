@@ -1,0 +1,46 @@
+{
+    "geode": "5.3.0",
+    "gd": {
+        "win": "2.2081"
+    },
+    "id": "icontradict.gd-requests",
+    "name": "GD Requests",
+    "version": "2.2.0",
+    "developer": "iContradict",
+    "description": "Manage your viewer level request queue in-game. Browse requests, jump to levels, remove/ban/mark as played -- all without leaving GD. Pairs with gdrequests.org.",
+    "repository": "https://github.com/xCompassionate/gd-requests-mod",
+    "links": {
+        "homepage": "https://www.gdrequests.org",
+        "source": "https://github.com/xCompassionate/gd-requests-mod"
+    },
+    "tags": ["interface", "online", "utility"],
+    "dependencies": {
+        "geode.node-ids": ">=1.15.0"
+    },
+    "settings": {
+        "creator-token": {
+            "type": "string",
+            "name": "Creator Token",
+            "description": "Your token from gdrequests.org -- find it on the Geode Integration page of your dashboard.",
+            "default": ""
+        },
+        "open-youtube": {
+            "type": "bool",
+            "name": "Open YouTube Showcases",
+            "description": "Show a YT button on requests that include a showcase video. Clicking it opens the video in your browser.",
+            "default": true
+        },
+        "show-toast": {
+            "type": "bool",
+            "name": "Now Playing",
+            "description": "Show a notification when you enter a level from your queue, displaying who requested it.",
+            "default": true
+        },
+        "f2-hotkey": {
+            "type": "bool",
+            "name": "F2 Hotkey",
+            "description": "Press F2 anywhere in GD to open your request queue.",
+            "default": true
+        }
+    }
+}
