@@ -664,7 +664,7 @@ struct $modify(GDReqMenuLayer, MenuLayer) {
         auto logo = CCSprite::create("logo.png"_spr);
         CCNode* btnContent;
         if (logo) {
-            const float targetSize = 50.f;
+            const float targetSize = 35.f;
             float scale = targetSize / logo->getContentSize().width;
             logo->setScale(scale);
             btnContent = logo;
@@ -681,7 +681,7 @@ struct $modify(GDReqMenuLayer, MenuLayer) {
 
         auto menu = CCMenu::create();
         menu->addChild(btn);
-        menu->setPosition({ws.width - 42.f, ws.height - 42.f});
+        menu->setPosition({ws.width - 42.f, ws.height - 65.f});
         addChild(menu, 10);
 
         return true;
