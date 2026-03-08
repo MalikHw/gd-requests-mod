@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.0
+- **F2 hotkey** — press F2 (customizable in settings) on any screen to open your queue
+- **Back button fix** — back no longer cycles through old levels after viewing requests
+- **macOS & Linux** — full support for Mac and Linux players
+- **Android & iOS** — mobile players can use the mod too
+
 ## v1.2.0
 - Request queue is now **scrollable** — all pending requests are visible, not just the first five
 - **YT** button is now a plain red text label to match the Remove / Ban Level style
