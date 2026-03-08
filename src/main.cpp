@@ -15,6 +15,7 @@ using namespace geode::prelude;
 
 static const std::string SERVER = "https://www.gdrequests.org";
 
+// sanitize strings before stuffing them into JSON
 static std::string jsonEscape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -32,11 +33,9 @@ static std::string jsonEscape(const std::string& s) {
 }
 
 static std::unordered_set<std::string> g_queueLevelIds;
-static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelId → requester name
+static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelId -> requester
 static bool g_fetchInProgress = false;
-static std::string g_currentQueueLevelId; // level currently being played from queue
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
+static std::string g_currentQueueLevelId; // tracks which queued level is being played
 
 struct QueueEntry {
     std::string name;
@@ -45,8 +44,7 @@ struct QueueEntry {
     bool online = false;
 };
 
-// ─── Queue action helper (remove / blacklist / played) ────────────────────────
-
+// fires off a POST to the server
 void sendQueueAction(const std::string& endpoint, const std::string& levelId) {
     auto token = Mod::get()->getSettingValue<std::string>("creator-token");
     if (token.empty()) return;
@@ -104,8 +102,7 @@ void sendQueueRemoveAll() {
     );
 }
 
-// ─── Queue popup (paginated — 5 per page) ────────────────────────────────────
-
+// popup that shows 5 entries per page
 class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
     std::vector<QueueEntry> m_entries;
     int m_page = 0;
@@ -118,7 +115,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
 
         auto sz = m_mainLayer->getContentSize();
 
-        // Dark overlay behind all content
+        // dim background behind content
         auto popupOverlay = CCDrawNode::create();
         {
             CCPoint v[] = {{0,0},{sz.width,0},{sz.width,sz.height},{0,sz.height}};
@@ -138,9 +135,8 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         return true;
     }
 
-    // ── Rebuild current page content ─────────────────────────────────────────
+    // wipes old page nodes and draws the current page
     void buildPage() {
-        // Remove previous page content
         if (auto n = m_mainLayer->getChildByTag(900)) n->removeFromParent();
         if (auto n = m_mainLayer->getChildByTag(901)) n->removeFromParent();
         if (auto n = m_mainLayer->getChildByTag(902)) n->removeFromParent();
@@ -155,7 +151,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         int startIdx = m_page * PER_PAGE;
         int endIdx   = std::min(startIdx + PER_PAGE, total);
 
-        // ── Count label ──────────────────────────────────────────────────────
+        // "X pending requests" label
         auto countLbl = CCLabelBMFont::create(
             fmt::format("{} pending request{}",
                         total, total == 1 ? "" : "s").c_str(),
@@ -166,7 +162,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         countLbl->setPosition({sz.width / 2.f, sz.height - 38.f});
         m_mainLayer->addChild(countLbl);
 
-        // ── Remove All button ────────────────────────────────────────────────
+        // remove all button (top right)
         auto removeAllMenu = CCMenu::create();
         removeAllMenu->setTag(904);
         removeAllMenu->setPosition({0.f, 0.f});
@@ -180,7 +176,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         removeAllMenu->addChild(removeAllBtn);
         m_mainLayer->addChild(removeAllMenu);
 
-        // ── Page container (rows + menu) ─────────────────────────────────────
+        // layout constants
         const float rowH     = 43.f;
         const float fullW    = sz.width - 24.f;
         const float rowLeft  = 12.f;
@@ -209,7 +205,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             const float inner  = rowH - 4.f;
             const float rowCY  = topY - localRow * rowH - rowH / 2.f;
 
-            // ── Row background ───────────────────────────────────────────────
+            // row bg
             auto bg = CCDrawNode::create();
             {
                 CCPoint v[] = {{0,0},{fullW,0},{fullW,inner},{0,inner}};
@@ -219,20 +215,20 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             bg->setPosition({rowLeft, rowCY - inner / 2.f});
             container->addChild(bg, -1);
 
-            // ── Position number (absolute, not page-relative) ────────────────
+            // queue position number
             auto numLbl = CCLabelBMFont::create(
                 std::to_string(idx + 1).c_str(), "bigFont.fnt", 30.f
             );
             numLbl->setScale(0.38f);
             numLbl->setPosition({14.f, inner / 2.f});
 
-            // ── Requester name ───────────────────────────────────────────────
+            // requester name
             auto nameLbl = CCLabelBMFont::create(e.name.c_str(), "bigFont.fnt", 200.f);
             nameLbl->setScale(0.44f);
             nameLbl->setAnchorPoint({0.f, 0.5f});
             nameLbl->setPosition({28.f, inner / 2.f + 8.f});
 
-            // ── Level ID (or YouTube-only label) ─────────────────────────────
+            // level ID or "YouTube request" if no ID
             std::string idText = e.levelId.empty() ? "YouTube request" : ("ID: " + e.levelId);
             auto idLbl = CCLabelBMFont::create(idText.c_str(), "bigFont.fnt", 200.f);
             idLbl->setScale(0.33f);
@@ -240,7 +236,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             idLbl->setAnchorPoint({0.f, 0.5f});
             idLbl->setPosition({28.f, inner / 2.f - 9.f});
 
-            // ── Main clickable area ──────────────────────────────────────────
+            // clickable row area
             auto rowNode = CCNode::create();
             rowNode->setContentSize({mainW, inner});
             rowNode->addChild(numLbl);
@@ -255,11 +251,11 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             mainBtn->setPosition({rowLeft, rowCY});
             menu->addChild(mainBtn);
 
-            // ── Action buttons ───────────────────────────────────────────────
+            // action buttons on the right side
             const float actX = rowLeft + mainW + 4.f;
 
             if (e.levelId.empty()) {
-                // YouTube-only: Remove (top) + Watch Video (bottom)
+                // youtube-only entry: remove + watch
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
                 removeLbl->setScale(0.30f);
                 removeLbl->setColor({255, 140, 40});
@@ -278,7 +274,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
                 watchBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.18f});
                 menu->addChild(watchBtn);
             } else {
-                // Regular level: Remove (top) + Ban Level (bottom) + optional YT
+                // normal level entry
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
                 removeLbl->setScale(0.30f);
                 removeLbl->setColor({255, 140, 40});
@@ -310,7 +306,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             }
         }
 
-        // ── Page navigation (only when multiple pages) ──────────────────────
+        // prev/next buttons when there's more than one page
         if (totalPages > 1) {
             auto navMenu = CCMenu::create();
             navMenu->setTag(902);
@@ -348,7 +344,6 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         }
     }
 
-    // ── Navigation ───────────────────────────────────────────────────────────
     void onPrevPage(CCObject*) {
         if (m_page > 0) { m_page--; buildPage(); }
     }
@@ -358,9 +353,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         if (m_page < totalPages - 1) { m_page++; buildPage(); }
     }
 
-    // ── Row actions ──────────────────────────────────────────────────────────
-
-    // Open level search
+    // click a row to search for that level
     void onEntry(CCObject* sender) {
         int idx = static_cast<CCNode*>(sender)->getTag();
         if (idx < 0 || idx >= (int)m_entries.size()) return;
@@ -368,12 +361,15 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         if (e.levelId.empty()) return;
         onClose(nullptr);
         auto searchObj = GJSearchObject::create(SearchType::Search, e.levelId);
-        CCDirector::get()->pushScene(
+        auto director = CCDirector::get();
+        // pop back to main menu first so back doesn't cycle through old levels
+        director->popToRootScene();
+        director->pushScene(
             CCTransitionFade::create(0.5f, LevelBrowserLayer::scene(searchObj))
         );
     }
 
-    // Remove from queue — stays open, rebuilds page
+    // remove entry, stay in popup
     void onRemove(CCObject* sender) {
         int idx = static_cast<CCNode*>(sender)->getTag();
         if (idx < 0 || idx >= (int)m_entries.size()) return;
@@ -394,7 +390,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         buildPage();
     }
 
-    // Blacklist level — stays open, rebuilds page
+    // ban a level, stay in popup
     void onBlacklist(CCObject* sender) {
         int idx = static_cast<CCNode*>(sender)->getTag();
         if (idx < 0 || idx >= (int)m_entries.size()) return;
@@ -411,7 +407,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         buildPage();
     }
 
-    // Remove all — show confirmation first
+    // confirm before nuking the whole queue
     void onRemoveAll(CCObject*) {
         auto alert = FLAlertLayer::create(
             this,
@@ -424,16 +420,15 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
     }
 
     void FLAlert_Clicked(FLAlertLayer*, bool btn2) override {
-        if (!btn2) return;  // Cancel pressed
+        if (!btn2) return;
         sendQueueRemoveAll();
         g_queueLevelIds.clear();
         m_entries.clear();
-        // Reopen as empty popup
         onClose(nullptr);
         QueuePopup::create({})->show();
     }
 
-    // Open YouTube showcase
+    // open a youtube link in browser
     void onWatch(CCObject* sender) {
         int idx = static_cast<CCNode*>(sender)->getTag();
         if (idx < 0 || idx >= (int)m_entries.size()) return;
@@ -457,8 +452,7 @@ public:
     }
 };
 
-// ─── HTTP fetch (queue → chatter status → show popup) ────────────────────────
-
+// grabs the queue from the server, checks chatter status, then shows the popup
 void fetchAndShowQueue() {
     if (g_fetchInProgress) return;
     g_fetchInProgress = true;
@@ -524,7 +518,7 @@ void fetchAndShowQueue() {
                 return;
             }
 
-            // Chatter online status
+            // check which requesters are currently in chat
             std::string names;
             for (auto& e : entries) {
                 if (!names.empty()) names += ",";
@@ -554,8 +548,7 @@ void fetchAndShowQueue() {
     );
 }
 
-// ─── PlayLayer hook — auto-mark played when a queued level is entered ─────────
-
+// auto-marks a level as played when the player enters it from the queue
 struct $modify(GDReqPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
@@ -574,7 +567,6 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
             g_queueLevelNames.erase(lvlId);
             sendQueueAction("/api/queue/played", lvlId);
 
-            // Toast notification (if enabled)
             if (Mod::get()->getSettingValue<bool>("show-toast")) {
                 std::string toastMsg = fmt::format("Now playing: ID {} by {}", lvlId, requester);
                 Notification::create(toastMsg, NotificationIcon::None, 3.f)->show();
@@ -584,16 +576,13 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
     }
 };
 
-// ─── PauseLayer hook — ban/remove a queued level while paused ─────────────────
-
+// adds remove/ban buttons to the pause menu for queued levels
 struct $modify(GDReqPauseLayer, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
 
         auto token = Mod::get()->getSettingValue<std::string>("creator-token");
         if (token.empty()) return;
-
-        // Only show buttons if this level came from the queue
         if (g_currentQueueLevelId.empty()) return;
 
         auto pl = PlayLayer::get();
@@ -601,13 +590,12 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
 
         auto ws = CCDirector::get()->getWinSize();
 
-        // Plain text labels — no background, fully transparent
         auto removeSpr = CCLabelBMFont::create("Remove",    "bigFont.fnt");
-        removeSpr->setColor({255, 140, 40});   // orange
+        removeSpr->setColor({255, 140, 40});
         removeSpr->setScale(0.6f);
 
         auto banSpr = CCLabelBMFont::create("Ban Level", "bigFont.fnt");
-        banSpr->setColor({220, 30, 30});       // red
+        banSpr->setColor({220, 30, 30});
         banSpr->setScale(0.6f);
 
         auto removeBtn = CCMenuItemSpriteExtra::create(
@@ -615,14 +603,11 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
         auto banBtn = CCMenuItemSpriteExtra::create(
             banSpr, this, menu_selector(GDReqPauseLayer::onBanFromQueue));
 
-        // Below the sliders, near the bottom of the screen
         float btnY  = ws.height * 0.07f;
         float rW    = removeSpr->getContentSize().width * removeSpr->getScale();
         float bW    = banSpr->getContentSize().width    * banSpr->getScale();
         float gap   = 12.f;
         float midX  = ws.width / 2.f;
-
-        // Center the pair: start left edge at midX - half of total group width
         float totalW = rW + gap + bW;
         float startX = midX - totalW / 2.f;
 
@@ -652,15 +637,13 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
     }
 };
 
-// ─── MenuLayer hook ───────────────────────────────────────────────────────────
-
+// main menu button
 struct $modify(GDReqMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
 
         auto ws = CCDirector::get()->getWinSize();
 
-        // Logo button — square icon scaled to 65 GD units
         auto logo = CCSprite::create("logo.png"_spr);
         CCNode* btnContent;
         if (logo) {
@@ -669,6 +652,7 @@ struct $modify(GDReqMenuLayer, MenuLayer) {
             logo->setScale(scale);
             btnContent = logo;
         } else {
+            // fallback if logo.png is missing
             auto lbl = CCLabelBMFont::create("GD Req", "goldFont.fnt", 160.f);
             lbl->setScale(0.7f);
             btnContent = lbl;
@@ -692,7 +676,7 @@ struct $modify(GDReqMenuLayer, MenuLayer) {
     }
 };
 
-// Keybind listener for opening the queue
+// hotkey to open queue from anywhere
 $on_mod(Loaded) {
     listenForKeybindSettingPresses("open-queue-keybind", [](Keybind const&, bool down, bool repeat, double) {
         if (!down || repeat) return;
