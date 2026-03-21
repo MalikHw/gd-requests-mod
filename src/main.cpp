@@ -41,6 +41,8 @@ struct QueueEntry {
     std::string name;
     std::string levelId;
     std::string youtubeUrl;
+    std::string levelName;
+    std::string gdDifficulty;
     bool online = false;
 };
 
@@ -82,6 +84,37 @@ void sendQueueRemoveYoutube(const std::string& youtubeUrl) {
                 .post(url);
         },
         [](web::WebResponse) {}
+    );
+}
+
+void sendTimeoutUser(const std::string& username) {
+    auto token = Mod::get()->getSettingValue<std::string>("creator-token");
+    if (token.empty()) return;
+
+    std::string url  = SERVER + "/api/queue/timeout";
+    std::string body = fmt::format(
+        "{{\"token\":\"{}\",\"username\":\"{}\"}}",
+        jsonEscape(token), jsonEscape(username)
+    );
+    geode::async::spawn(
+        [url, body]() -> web::WebFuture {
+            return web::WebRequest()
+                .header("Content-Type", "application/json")
+                .body(std::vector<uint8_t>(body.begin(), body.end()))
+                .post(url);
+        },
+        [username](web::WebResponse res) {
+            if (res.ok()) {
+                auto j = res.json();
+                int mins = 60;
+                if (j && (*j).contains("duration_mins"))
+                    mins = (*j)["duration_mins"].asInt().unwrapOr(60);
+                Notification::create(
+                    fmt::format("{} timed out for {} min", username, mins),
+                    NotificationIcon::Warning, 3.f
+                )->show();
+            }
+        }
     );
 }
 
@@ -222,26 +255,59 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             numLbl->setScale(0.38f);
             numLbl->setPosition({14.f, inner / 2.f});
 
-            // requester name
-            auto nameLbl = CCLabelBMFont::create(e.name.c_str(), "bigFont.fnt", 200.f);
-            nameLbl->setScale(0.44f);
-            nameLbl->setAnchorPoint({0.f, 0.5f});
-            nameLbl->setPosition({28.f, inner / 2.f + 8.f});
+            // top line: level name (or ID fallback) with difficulty color
+            std::string topText;
+            ccColor3B topColor;
+            if (e.levelId.empty()) {
+                topText = "YouTube request";
+                topColor = {255, 70, 70};
+            } else if (!e.levelName.empty()) {
+                topText = e.levelName;
+                // color by difficulty
+                if (e.gdDifficulty == "easy") topColor = {80, 210, 80};
+                else if (e.gdDifficulty == "normal") topColor = {80, 180, 255};
+                else if (e.gdDifficulty == "hard") topColor = {255, 160, 50};
+                else if (e.gdDifficulty == "harder") topColor = {255, 100, 100};
+                else if (e.gdDifficulty == "insane") topColor = {255, 60, 180};
+                else if (e.gdDifficulty.find("demon") != std::string::npos) topColor = {255, 40, 40};
+                else if (e.gdDifficulty == "auto") topColor = {200, 200, 100};
+                else topColor = {240, 200, 80};
+            } else {
+                topText = "ID: " + e.levelId;
+                topColor = {240, 200, 80};
+            }
+            auto topLbl = CCLabelBMFont::create(topText.c_str(), "bigFont.fnt", 200.f);
+            topLbl->setScale(0.40f);
+            topLbl->setColor(topColor);
+            topLbl->setAnchorPoint({0.f, 0.5f});
+            topLbl->setPosition({28.f, inner / 2.f + 8.f});
 
-            // level ID or "YouTube request" if no ID
-            std::string idText = e.levelId.empty() ? "YouTube request" : ("ID: " + e.levelId);
-            auto idLbl = CCLabelBMFont::create(idText.c_str(), "bigFont.fnt", 200.f);
-            idLbl->setScale(0.33f);
-            idLbl->setColor(e.levelId.empty() ? ccColor3B{255, 70, 70} : ccColor3B{240, 200, 80});
-            idLbl->setAnchorPoint({0.f, 0.5f});
-            idLbl->setPosition({28.f, inner / 2.f - 9.f});
+            // bottom line: requester name + difficulty tag
+            std::string bottomText = e.name;
+            if (!e.levelId.empty() && !e.gdDifficulty.empty() && e.gdDifficulty != "na") {
+                // format difficulty nicely
+                std::string diff = e.gdDifficulty;
+                for (auto& ch : diff) if (ch == '_') ch = ' ';
+                // capitalize first letter of each word
+                bool cap = true;
+                for (auto& ch : diff) {
+                    if (cap && ch >= 'a' && ch <= 'z') ch -= 32;
+                    cap = (ch == ' ');
+                }
+                bottomText += " | " + diff;
+            }
+            auto bottomLbl = CCLabelBMFont::create(bottomText.c_str(), "bigFont.fnt", 200.f);
+            bottomLbl->setScale(0.30f);
+            bottomLbl->setColor({180, 180, 200});
+            bottomLbl->setAnchorPoint({0.f, 0.5f});
+            bottomLbl->setPosition({28.f, inner / 2.f - 9.f});
 
             // clickable row area
             auto rowNode = CCNode::create();
             rowNode->setContentSize({mainW, inner});
             rowNode->addChild(numLbl);
-            rowNode->addChild(nameLbl);
-            rowNode->addChild(idLbl);
+            rowNode->addChild(topLbl);
+            rowNode->addChild(bottomLbl);
 
             auto mainBtn = CCMenuItemSpriteExtra::create(
                 rowNode, this, menu_selector(QueuePopup::onEntry)
@@ -255,42 +321,60 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             const float actX = rowLeft + mainW + 4.f;
 
             if (e.levelId.empty()) {
-                // youtube-only entry: remove + watch
+                // youtube-only entry: remove, timeout, watch
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
-                removeLbl->setScale(0.30f);
+                removeLbl->setScale(0.26f);
                 removeLbl->setColor({255, 140, 40});
                 auto removeBtn = CCMenuItemSpriteExtra::create(
                     removeLbl, this, menu_selector(QueuePopup::onRemove));
                 removeBtn->setTag(idx);
-                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.18f});
+                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.28f});
                 menu->addChild(removeBtn);
 
-                auto watchLbl = CCLabelBMFont::create("Watch Video", "bigFont.fnt", stackW * 3.f);
-                watchLbl->setScale(0.27f);
+                auto timeoutLbl = CCLabelBMFont::create("Timeout", "bigFont.fnt", stackW * 3.f);
+                timeoutLbl->setScale(0.26f);
+                timeoutLbl->setColor({255, 200, 50});
+                auto timeoutBtn = CCMenuItemSpriteExtra::create(
+                    timeoutLbl, this, menu_selector(QueuePopup::onTimeout));
+                timeoutBtn->setTag(idx);
+                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY});
+                menu->addChild(timeoutBtn);
+
+                auto watchLbl = CCLabelBMFont::create("Watch", "bigFont.fnt", stackW * 3.f);
+                watchLbl->setScale(0.26f);
                 watchLbl->setColor({255, 70, 70});
                 auto watchBtn = CCMenuItemSpriteExtra::create(
                     watchLbl, this, menu_selector(QueuePopup::onWatch));
                 watchBtn->setTag(idx);
-                watchBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.18f});
+                watchBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.28f});
                 menu->addChild(watchBtn);
             } else {
-                // normal level entry
+                // normal level entry: Remove, Timeout, Ban stacked
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
-                removeLbl->setScale(0.30f);
+                removeLbl->setScale(0.26f);
                 removeLbl->setColor({255, 140, 40});
                 auto removeBtn = CCMenuItemSpriteExtra::create(
                     removeLbl, this, menu_selector(QueuePopup::onRemove));
                 removeBtn->setTag(idx);
-                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.18f});
+                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.28f});
                 menu->addChild(removeBtn);
 
+                auto timeoutLbl = CCLabelBMFont::create("Timeout", "bigFont.fnt", stackW * 3.f);
+                timeoutLbl->setScale(0.26f);
+                timeoutLbl->setColor({255, 200, 50});
+                auto timeoutBtn = CCMenuItemSpriteExtra::create(
+                    timeoutLbl, this, menu_selector(QueuePopup::onTimeout));
+                timeoutBtn->setTag(idx);
+                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY});
+                menu->addChild(timeoutBtn);
+
                 auto banLbl = CCLabelBMFont::create("Ban Level", "bigFont.fnt", stackW * 3.f);
-                banLbl->setScale(0.30f);
+                banLbl->setScale(0.26f);
                 banLbl->setColor({220, 30, 30});
                 auto banBtn = CCMenuItemSpriteExtra::create(
                     banLbl, this, menu_selector(QueuePopup::onBlacklist));
                 banBtn->setTag(idx);
-                banBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.18f});
+                banBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.28f});
                 menu->addChild(banBtn);
 
                 if (hasYT) {
@@ -388,6 +472,13 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             return;
         }
         buildPage();
+    }
+
+    // timeout a user
+    void onTimeout(CCObject* sender) {
+        int idx = static_cast<CCNode*>(sender)->getTag();
+        if (idx < 0 || idx >= (int)m_entries.size()) return;
+        sendTimeoutUser(m_entries[idx].name);
     }
 
     // ban a level, stay in popup
@@ -500,9 +591,11 @@ void fetchAndShowQueue() {
             if (json.contains("requests") && json["requests"].isArray()) {
                 for (auto& item : json["requests"]) {
                     QueueEntry qe;
-                    qe.name       = item["name"].asString().unwrapOr("Unknown");
-                    qe.levelId    = item["level_id"].asString().unwrapOr("");
-                    qe.youtubeUrl = item["youtube_url"].asString().unwrapOr("");
+                    qe.name         = item["name"].asString().unwrapOr("Unknown");
+                    qe.levelId      = item["level_id"].asString().unwrapOr("");
+                    qe.youtubeUrl   = item["youtube_url"].asString().unwrapOr("");
+                    qe.levelName    = item["level_name"].asString().unwrapOr("");
+                    qe.gdDifficulty = item["gd_difficulty"].asString().unwrapOr("");
                     if (!qe.levelId.empty() || !qe.youtubeUrl.empty()) {
                         if (!qe.levelId.empty()) {
                             g_queueLevelIds.insert(qe.levelId);
