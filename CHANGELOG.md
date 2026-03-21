@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.4.0
+- **Level names & difficulty** — queue entries now show the actual level name and difficulty rating instead of just the raw ID
+- **Difficulty colors** — level names are color-coded by difficulty (green for easy, red for demon, etc.)
+- **Requester + difficulty on second line** — each row shows who submitted it and the difficulty tag underneath the level name
+- **Channel points support** — works with the new Twitch channel points feature on gdrequests.org
+
 ## v2.3.0
 - **F2 hotkey** — press F2 (customizable in settings) on any screen to open your queue
 - **Back button fix** — back no longer cycles through old levels after viewing requests
