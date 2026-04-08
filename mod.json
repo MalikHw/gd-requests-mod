@@ -56,11 +56,28 @@
             "description": "Good if you get nsfw jumpscared you press that to make gameplay black for your account safety lol (made by MalikHw47)",
             "default": "F3"
         },
-        "always-show-black-btn": {
-            "name": "Always Show Black Screen Button",
-             "description": "Show the black screen toggle button during gameplay on all platforms, not just mobile, maybe windows on touchscreen?",
+        "hide-black-btn": {
+            "name": "Hide Black Screen Button",
+            "description": "Hide the button entirely if you're not streaming and don't need it.",
             "type": "bool",
             "default": false
+        },
+        "always-show-black-btn": {
+            "name": "Always Show Black Screen Button",
+            "description": "Show the black screen toggle button during gameplay on all platforms, not just mobile, maybe windows on touchscreen?",
+            "type": "bool",
+            "default": false
+        },
+        "black-btn-position": {
+            "name": "Black Screen Button Position",
+            "description": "Where to place the black screen toggle button during gameplay.",
+            "type": "string",
+            "default": "Bottom Left",
+            "one-of": [
+                "Top Left", "Top Right",
+                "Center Left", "Center Right",
+                "Bottom Left", "Bottom Right"
+            ]
         },
         "black-btn-size": {
             "name": "Black Screen Button Size",
