@@ -11,6 +11,11 @@
     "version": "2.5.1",
     "developers": ["iContradict","MalikHw47"],
     "description": "Manage your viewer level request queue in-game. Browse requests, jump to levels, remove/ban/mark as played -- all without leaving GD. Pairs with gdrequests.org.",
+    "resources": {
+        "sprites": [
+            "resources/black-toggle.png"
+        ]
+    },
     "repository": "https://github.com/xCompassionate/gd-requests-mod",
     "links": {
         "homepage": "https://www.gdrequests.org",
