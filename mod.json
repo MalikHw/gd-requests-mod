@@ -56,6 +56,17 @@
              "description": "Show the black screen toggle button during gameplay on all platforms, not just mobile, maybe windows on touchscreen?",
             "type": "bool",
             "default": false
+        },
+        "black-btn-size": {
+            "name": "Black Screen Button Size",
+            "description": "Size of the black screen toggle button during gameplay (in pixels).",
+            "type": "int",
+            "default": 40,
+            "min": 10,
+            "max": 120,
+            "control": {
+                "slider": true
+            }
         }
     }
 }
