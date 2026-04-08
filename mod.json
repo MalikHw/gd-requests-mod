@@ -44,6 +44,11 @@
             "name": "Open Queue Hotkey",
             "description": "Press this key anywhere in GD to open your request queue.",
             "default": "F2"
+        "black-screen-keybind": {
+            "type": "keybind",
+            "name": "Black screen toggle hotkey",
+            "description": "Good if you get nsfw jumpscared you press that to make gameplay black for your account safety lol (made by MalikHw47)",
+            "default": "F3"
         }
     }
 }
