@@ -1,5 +1,7 @@
 # Changelog
 
+## v2.5.1
+- blackscreen toggle works for mobile now by adding a button
 
 ## v2.5.0
 - **Loading toast** — shows a loading toast when opening the queue (ADDED BY MALIKHW47)
