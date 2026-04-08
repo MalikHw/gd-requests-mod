@@ -698,7 +698,7 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
             }
         }
 
-        if (shouldShowBlackScreenButton() && !Mod::get()->getSettingValue<bool>("hide-black-btn")) {
+        if (shouldShowBlackScreenButton() && !Mod::get()->getSettingValue<bool>("hide-black-btn") && !g_currentQueueLevelId.empty()) {
             auto ws = CCDirector::get()->getWinSize();
             float targetSize = static_cast<float>(Mod::get()->getSettingValue<int64_t>("black-btn-size"));
             float half = targetSize / 2.f + 8.f;
