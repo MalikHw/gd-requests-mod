@@ -50,6 +50,12 @@
             "name": "Black screen toggle hotkey",
             "description": "Good if you get nsfw jumpscared you press that to make gameplay black for your account safety lol (made by MalikHw47)",
             "default": "F3"
+        },
+        "always-show-black-btn": {
+            "name": "Always Show Black Screen Button",
+             "description": "Show the black screen toggle button during gameplay on all platforms, not just mobile, maybe windows on touchscreen?",
+            "type": "bool",
+            "default": false
         }
     }
 }
