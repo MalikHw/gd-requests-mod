@@ -664,6 +664,14 @@ static void toggleBlackScreen() {
     }
 }
 
+static bool shouldShowBlackScreenButton() {
+#if defined(GEODE_IS_ANDROID) || defined(GEODE_IS_IOS)
+    return true;
+#else
+    return Mod::get()->getSettingValue<bool>("always-show-black-btn");
+#endif
+}
+
 // auto-marks a level as played when the player enters it from the queue
 struct $modify(GDReqPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
@@ -689,7 +697,38 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
                 Notification::create(toastMsg, NotificationIcon::None, 3.f)->show();
             }
         }
+
+        if (shouldShowBlackScreenButton()) {
+            auto ws = CCDirector::get()->getWinSize();
+
+            auto btnSpr = CCSprite::create("black-toggle.png"_spr);
+            if (!btnSpr) {
+                auto fallback = CCLabelBMFont::create("B", "bigFont.fnt");
+                fallback->setScale(0.6f);
+                btnSpr = CCSprite::create();
+                btnSpr->addChild(fallback);
+            } else {
+                const float targetSize = 40.f;
+                btnSpr->setScale(targetSize / btnSpr->getContentSize().width);
+            }
+
+            auto btn = CCMenuItemSpriteExtra::create(
+                btnSpr, this, menu_selector(GDReqPlayLayer::onBlackScreenBtn)
+            );
+            btn->setTag(9872);
+
+            auto menu = CCMenu::create();
+            menu->setPosition({0.f, 0.f});
+            btn->setPosition({ws.width - 28.f, ws.height - 28.f});
+            menu->addChild(btn);
+            addChild(menu, 9999);
+        }
+
         return true;
+    }
+
+    void onBlackScreenBtn(CCObject*) {
+        toggleBlackScreen();
     }
 };
 
