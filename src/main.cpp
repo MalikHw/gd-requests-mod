@@ -37,6 +37,8 @@ static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelI
 static bool g_fetchInProgress = false;
 static std::string g_currentQueueLevelId; // tracks which queued level is being played
 
+static bool g_blackScreenActive = false;
+
 struct QueueEntry {
     std::string name;
     std::string levelId;
@@ -560,6 +562,8 @@ void fetchAndShowQueue() {
         return;
     }
 
+    Notification::create("Checking the queue...", NotificationIcon::Loading, 3.f)->show();
+
     std::string queueUrl = SERVER + "/api/queue/" + token;
 
     geode::async::spawn(
@@ -641,6 +645,25 @@ void fetchAndShowQueue() {
     );
 }
 
+static void toggleBlackScreen() {
+    auto pl = PlayLayer::get();
+    if (!pl) return;
+
+    g_blackScreenActive = !g_blackScreenActive;
+
+    auto existing = pl->getChildByTag(9871);
+    if (g_blackScreenActive) {
+        if (existing) return;
+        auto ws = CCDirector::get()->getWinSize();
+        auto black = CCLayerColor::create({0, 0, 0, 255}, ws.width, ws.height);
+        black->setTag(9871);
+        black->setZOrder(-1);
+        pl->addChild(black, -1);
+    } else {
+        if (existing) existing->removeFromParent();
+    }
+}
+
 // auto-marks a level as played when the player enters it from the queue
 struct $modify(GDReqPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
@@ -648,6 +671,7 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
 
         std::string lvlId = std::to_string(level->m_levelID);
         g_currentQueueLevelId.clear();
+        g_blackScreenActive = false;
 
         if (!g_queueLevelIds.empty() && g_queueLevelIds.count(lvlId)) {
             g_currentQueueLevelId = lvlId;
@@ -777,5 +801,10 @@ $on_mod(Loaded) {
         if (!token.empty()) {
             fetchAndShowQueue();
         }
+    });
+
+    listenForKeybindSettingPresses("black-screen-keybind", [](Keybind const&, bool down, bool repeat, double) {
+        if (!down || repeat) return;
+        toggleBlackScreen();
     });
 }
