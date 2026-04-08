@@ -698,8 +698,19 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
             }
         }
 
-        if (shouldShowBlackScreenButton()) {
+        if (shouldShowBlackScreenButton() && !Mod::get()->getSettingValue<bool>("hide-black-btn")) {
             auto ws = CCDirector::get()->getWinSize();
+            float targetSize = static_cast<float>(Mod::get()->getSettingValue<int64_t>("black-btn-size"));
+            float half = targetSize / 2.f + 8.f;
+            auto posStr = Mod::get()->getSettingValue<std::string>("black-btn-position");
+
+            float bx, by;
+            if (posStr == "Top Left")          { bx = half;              by = ws.height - half; }
+            else if (posStr == "Top Right")    { bx = ws.width - half;   by = ws.height - half; }
+            else if (posStr == "Center Left")  { bx = half;              by = ws.height / 2.f;  }
+            else if (posStr == "Center Right") { bx = ws.width - half;   by = ws.height / 2.f;  }
+            else if (posStr == "Bottom Right") { bx = ws.width - half;   by = half;             }
+            else                               { bx = half;              by = half;             } // Bottom Left (default)
 
             auto btnSpr = CCSprite::create("black-toggle.png"_spr);
             if (!btnSpr) {
@@ -708,7 +719,6 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
                 btnSpr = CCSprite::create();
                 btnSpr->addChild(fallback);
             } else {
-                const float targetSize = 40.f;
                 btnSpr->setScale(targetSize / btnSpr->getContentSize().width);
             }
 
@@ -718,8 +728,7 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
             btn->setTag(9872);
 
             auto menu = CCMenu::create();
-            menu->setPosition({0.f, 0.f});
-            btn->setPosition({ws.width - 28.f, ws.height - 28.f});
+            menu->setPosition({bx, by});
             menu->addChild(btn);
             addChild(menu, 9999);
         }
