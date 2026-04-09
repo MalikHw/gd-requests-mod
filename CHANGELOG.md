@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.1
+- blackscreen toggle works for mobile now by adding a button
+
+## v2.5.0
+- **Loading toast** — shows a loading toast when opening the queue (ADDED BY MALIKHW47)
+- **BlackScreen Toggle** — useful for when you get an nsfw level u press that to black out the gameplay (ADDED BY MALIKHW47)
+
 ## v2.4.0
 - **Level names & difficulty** — queue entries now show the actual level name and difficulty rating instead of just the raw ID
 - **Difficulty colors** — level names are color-coded by difficulty (green for easy, red for demon, etc.)

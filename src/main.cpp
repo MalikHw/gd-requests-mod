@@ -37,6 +37,8 @@ static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelI
 static bool g_fetchInProgress = false;
 static std::string g_currentQueueLevelId; // tracks which queued level is being played
 
+static bool g_blackScreenActive = false;
+
 struct QueueEntry {
     std::string name;
     std::string levelId;
@@ -560,6 +562,8 @@ void fetchAndShowQueue() {
         return;
     }
 
+    Notification::create("Checking the queue...", NotificationIcon::Loading, 3.f)->show();
+
     std::string queueUrl = SERVER + "/api/queue/" + token;
 
     geode::async::spawn(
@@ -641,6 +645,33 @@ void fetchAndShowQueue() {
     );
 }
 
+static void toggleBlackScreen() {
+    auto pl = PlayLayer::get();
+    if (!pl) return;
+
+    g_blackScreenActive = !g_blackScreenActive;
+
+    auto existing = pl->getChildByTag(9871);
+    if (g_blackScreenActive) {
+        if (existing) return;
+        auto ws = CCDirector::get()->getWinSize();
+        auto black = CCLayerColor::create({0, 0, 0, 255}, ws.width, ws.height);
+        black->setTag(9871);
+        black->setZOrder(-1);
+        pl->addChild(black, -1);
+    } else {
+        if (existing) existing->removeFromParent();
+    }
+}
+
+static bool shouldShowBlackScreenButton() {
+#if defined(GEODE_IS_ANDROID) || defined(GEODE_IS_IOS)
+    return true;
+#else
+    return Mod::get()->getSettingValue<bool>("always-show-black-btn");
+#endif
+}
+
 // auto-marks a level as played when the player enters it from the queue
 struct $modify(GDReqPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
@@ -648,6 +679,7 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
 
         std::string lvlId = std::to_string(level->m_levelID);
         g_currentQueueLevelId.clear();
+        g_blackScreenActive = false;
 
         if (!g_queueLevelIds.empty() && g_queueLevelIds.count(lvlId)) {
             g_currentQueueLevelId = lvlId;
@@ -665,7 +697,47 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
                 Notification::create(toastMsg, NotificationIcon::None, 3.f)->show();
             }
         }
+
+        if (shouldShowBlackScreenButton() && !Mod::get()->getSettingValue<bool>("hide-black-btn") && !g_currentQueueLevelId.empty()) {
+            auto ws = CCDirector::get()->getWinSize();
+            float targetSize = static_cast<float>(Mod::get()->getSettingValue<int64_t>("black-btn-size"));
+            float half = targetSize / 2.f + 8.f;
+            auto posStr = Mod::get()->getSettingValue<std::string>("black-btn-position");
+
+            float bx, by;
+            if (posStr == "Top Left")          { bx = half;              by = ws.height - half; }
+            else if (posStr == "Top Right")    { bx = ws.width - half;   by = ws.height - half; }
+            else if (posStr == "Center Left")  { bx = half;              by = ws.height / 2.f;  }
+            else if (posStr == "Center Right") { bx = ws.width - half;   by = ws.height / 2.f;  }
+            else if (posStr == "Bottom Right") { bx = ws.width - half;   by = half;             }
+            else                               { bx = half;              by = half;             } // Bottom Left (default)
+
+            auto btnSpr = CCSprite::create("black-toggle.png"_spr);
+            if (!btnSpr) {
+                auto fallback = CCLabelBMFont::create("B", "bigFont.fnt");
+                fallback->setScale(0.6f);
+                btnSpr = CCSprite::create();
+                btnSpr->addChild(fallback);
+            } else {
+                btnSpr->setScale(targetSize / btnSpr->getContentSize().width);
+            }
+
+            auto btn = CCMenuItemSpriteExtra::create(
+                btnSpr, this, menu_selector(GDReqPlayLayer::onBlackScreenBtn)
+            );
+            btn->setTag(9872);
+
+            auto menu = CCMenu::create();
+            menu->setPosition({bx, by});
+            menu->addChild(btn);
+            addChild(menu, 9999);
+        }
+
         return true;
+    }
+
+    void onBlackScreenBtn(CCObject*) {
+        toggleBlackScreen();
     }
 };
 
@@ -777,5 +849,10 @@ $on_mod(Loaded) {
         if (!token.empty()) {
             fetchAndShowQueue();
         }
+    });
+
+    listenForKeybindSettingPresses("black-screen-keybind", [](Keybind const&, bool down, bool repeat, double) {
+        if (!down || repeat) return;
+        toggleBlackScreen();
     });
 }

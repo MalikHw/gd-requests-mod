@@ -14,6 +14,7 @@ Browse and manage your level request queue without ever leaving Geometry Dash.
 - **F2 hotkey** -- press F2 anywhere in GD to open your queue instantly
 - **YouTube showcase** -- open a requester's showcase video in your browser with one tap
 - **Real-time sync** -- your gdrequests.org dashboard updates automatically as you play
+- **Blackscreen toggle** -- Toggle to black out the screen to prevent nsfw jumpscares from nuking streamers (by MalikHw47) (mobile support added)
 
 ## Setup
 
@@ -27,3 +28,5 @@ Browse and manage your level request queue without ever leaving Geometry Dash.
 - Website: [gdrequests.org](https://www.gdrequests.org)
 - Source: [github.com/xCompassionate/gd-requests-mod](https://github.com/xCompassionate/gd-requests-mod)
 - Made by [iContradict](https://twitch.tv/iContradict)
+
+(some features from help by [MalikHw47](https://youtube.com/@MalikHw47))

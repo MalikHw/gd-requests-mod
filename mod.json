@@ -1,5 +1,5 @@
 {
-    "geode": "5.3.0",
+    "geode": "5.5.3",
     "gd": {
         "win": "2.2081",
         "mac": "2.2081",
@@ -8,9 +8,14 @@
     },
     "id": "icontradict.gd-requests",
     "name": "GD Requests",
-    "version": "2.4.0",
-    "developer": "iContradict",
+    "version": "2.5.1",
+    "developers": ["iContradict","MalikHw47"],
     "description": "Manage your viewer level request queue in-game. Browse requests, jump to levels, remove/ban/mark as played -- all without leaving GD. Pairs with gdrequests.org.",
+    "resources": {
+        "sprites": [
+            "resources/black-toggle.png"
+        ]
+    },
     "repository": "https://github.com/xCompassionate/gd-requests-mod",
     "links": {
         "homepage": "https://www.gdrequests.org",
@@ -44,6 +49,46 @@
             "name": "Open Queue Hotkey",
             "description": "Press this key anywhere in GD to open your request queue.",
             "default": "F2"
+        },
+        "black-screen-keybind": {
+            "type": "keybind",
+            "name": "Black screen toggle hotkey",
+            "description": "Good if you get nsfw jumpscared you press that to make gameplay black for your account safety lol (made by MalikHw47)",
+            "default": "F3"
+        },
+        "hide-black-btn": {
+            "name": "Hide Black Screen Button",
+            "description": "Hide the button entirely if you're not streaming and don't need it.",
+            "type": "bool",
+            "default": false
+        },
+        "always-show-black-btn": {
+            "name": "Always Show Black Screen Button",
+            "description": "Show the black screen toggle button during gameplay on all platforms, not just mobile, maybe windows on touchscreen?",
+            "type": "bool",
+            "default": false
+        },
+        "black-btn-position": {
+            "name": "Black Screen Button Position",
+            "description": "Where to place the black screen toggle button during gameplay.",
+            "type": "string",
+            "default": "Bottom Left",
+            "one-of": [
+                "Top Left", "Top Right",
+                "Center Left", "Center Right",
+                "Bottom Left", "Bottom Right"
+            ]
+        },
+        "black-btn-size": {
+            "name": "Black Screen Button Size",
+            "description": "Size of the black screen toggle button during gameplay (in pixels).",
+            "type": "int",
+            "default": 40,
+            "min": 10,
+            "max": 120,
+            "control": {
+                "slider": true
+            }
         }
     }
 }
