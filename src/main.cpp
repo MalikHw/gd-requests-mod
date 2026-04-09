@@ -36,12 +36,8 @@ static std::unordered_set<std::string> g_queueLevelIds;
 static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelId -> requester
 static bool g_fetchInProgress = false;
 static std::string g_currentQueueLevelId; // tracks which queued level is being played
-static int g_currentQueueRequestId = 0;
-static std::string g_currentQueueRequester;
-static std::unordered_map<std::string, int> g_queueRequestIds; // levelId -> requestId
 
 struct QueueEntry {
-    int requestId = 0;
     std::string name;
     std::string levelId;
     std::string youtubeUrl;
@@ -116,38 +112,6 @@ void sendTimeoutUser(const std::string& username) {
                 Notification::create(
                     fmt::format("{} timed out for {} min", username, mins),
                     NotificationIcon::Warning, 3.f
-                )->show();
-            }
-        }
-    );
-}
-
-void sendBanIP(int requestId, const std::string& username) {
-    auto token = Mod::get()->getSettingValue<std::string>("creator-token");
-    if (token.empty()) return;
-
-    std::string url  = SERVER + "/api/queue/ban-ip";
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"request_id\":{}}}",
-        jsonEscape(token), requestId
-    );
-    geode::async::spawn(
-        [url, body]() -> web::WebFuture {
-            return web::WebRequest()
-                .header("Content-Type", "application/json")
-                .body(std::vector<uint8_t>(body.begin(), body.end()))
-                .post(url);
-        },
-        [username](web::WebResponse res) {
-            if (res.ok()) {
-                Notification::create(
-                    fmt::format("IP banned & removed all requests from {}", username),
-                    NotificationIcon::Warning, 3.f
-                )->show();
-            } else {
-                Notification::create(
-                    "No IP on record for that request",
-                    NotificationIcon::Error, 3.f
                 )->show();
             }
         }
@@ -357,79 +321,61 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             const float actX = rowLeft + mainW + 4.f;
 
             if (e.levelId.empty()) {
-                // youtube-only entry: remove, timeout, ban ip, watch
+                // youtube-only entry: remove, timeout, watch
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
-                removeLbl->setScale(0.24f);
+                removeLbl->setScale(0.26f);
                 removeLbl->setColor({255, 140, 40});
                 auto removeBtn = CCMenuItemSpriteExtra::create(
                     removeLbl, this, menu_selector(QueuePopup::onRemove));
                 removeBtn->setTag(idx);
-                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.32f});
+                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.28f});
                 menu->addChild(removeBtn);
 
                 auto timeoutLbl = CCLabelBMFont::create("Timeout", "bigFont.fnt", stackW * 3.f);
-                timeoutLbl->setScale(0.24f);
+                timeoutLbl->setScale(0.26f);
                 timeoutLbl->setColor({255, 200, 50});
                 auto timeoutBtn = CCMenuItemSpriteExtra::create(
                     timeoutLbl, this, menu_selector(QueuePopup::onTimeout));
                 timeoutBtn->setTag(idx);
-                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.11f});
+                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY});
                 menu->addChild(timeoutBtn);
 
-                auto banIpLbl = CCLabelBMFont::create("Ban IP", "bigFont.fnt", stackW * 3.f);
-                banIpLbl->setScale(0.24f);
-                banIpLbl->setColor({255, 40, 40});
-                auto banIpBtn = CCMenuItemSpriteExtra::create(
-                    banIpLbl, this, menu_selector(QueuePopup::onBanIP));
-                banIpBtn->setTag(idx);
-                banIpBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.11f});
-                menu->addChild(banIpBtn);
-
                 auto watchLbl = CCLabelBMFont::create("Watch", "bigFont.fnt", stackW * 3.f);
-                watchLbl->setScale(0.24f);
+                watchLbl->setScale(0.26f);
                 watchLbl->setColor({255, 70, 70});
                 auto watchBtn = CCMenuItemSpriteExtra::create(
                     watchLbl, this, menu_selector(QueuePopup::onWatch));
                 watchBtn->setTag(idx);
-                watchBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.32f});
+                watchBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.28f});
                 menu->addChild(watchBtn);
             } else {
-                // normal level entry: Remove, Timeout, Ban Level, Ban IP stacked
+                // normal level entry: Remove, Timeout, Ban stacked
                 auto removeLbl = CCLabelBMFont::create("Remove", "bigFont.fnt", stackW * 3.f);
-                removeLbl->setScale(0.24f);
+                removeLbl->setScale(0.26f);
                 removeLbl->setColor({255, 140, 40});
                 auto removeBtn = CCMenuItemSpriteExtra::create(
                     removeLbl, this, menu_selector(QueuePopup::onRemove));
                 removeBtn->setTag(idx);
-                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.32f});
+                removeBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.28f});
                 menu->addChild(removeBtn);
 
                 auto timeoutLbl = CCLabelBMFont::create("Timeout", "bigFont.fnt", stackW * 3.f);
-                timeoutLbl->setScale(0.24f);
+                timeoutLbl->setScale(0.26f);
                 timeoutLbl->setColor({255, 200, 50});
                 auto timeoutBtn = CCMenuItemSpriteExtra::create(
                     timeoutLbl, this, menu_selector(QueuePopup::onTimeout));
                 timeoutBtn->setTag(idx);
-                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY + inner * 0.11f});
+                timeoutBtn->setPosition({actX + stackW * 0.5f, rowCY});
                 menu->addChild(timeoutBtn);
 
                 auto banLbl = CCLabelBMFont::create("Ban Level", "bigFont.fnt", stackW * 3.f);
-                banLbl->setScale(0.24f);
+                banLbl->setScale(0.26f);
                 banLbl->setColor({220, 30, 30});
                 auto banBtn = CCMenuItemSpriteExtra::create(
                     banLbl, this, menu_selector(QueuePopup::onBlacklist));
                 banBtn->setTag(idx);
-                banBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.11f});
+                banBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.28f});
                 menu->addChild(banBtn);
-
-                auto banIpLbl = CCLabelBMFont::create("Ban IP", "bigFont.fnt", stackW * 3.f);
-                banIpLbl->setScale(0.24f);
-                banIpLbl->setColor({255, 40, 40});
-                auto banIpBtn = CCMenuItemSpriteExtra::create(
-                    banIpLbl, this, menu_selector(QueuePopup::onBanIP));
-                banIpBtn->setTag(idx);
-                banIpBtn->setPosition({actX + stackW * 0.5f, rowCY - inner * 0.32f});
-                menu->addChild(banIpBtn);
 
                 if (hasYT) {
                     auto ytLbl = CCLabelBMFont::create("YT", "bigFont.fnt", ytW * 3.f);
@@ -552,28 +498,6 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         buildPage();
     }
 
-    // ban the IP that submitted this request
-    void onBanIP(CCObject* sender) {
-        int idx = static_cast<CCNode*>(sender)->getTag();
-        if (idx < 0 || idx >= (int)m_entries.size()) return;
-        auto& e = m_entries[idx];
-        sendBanIP(e.requestId, e.name);
-        // Remove all entries from same name (server deletes all from that IP)
-        std::string bannedName = e.name;
-        m_entries.erase(
-            std::remove_if(m_entries.begin(), m_entries.end(),
-                [&](const QueueEntry& qe) { return qe.name == bannedName; }),
-            m_entries.end()
-        );
-        if (m_entries.empty()) {
-            auto remaining = m_entries;
-            onClose(nullptr);
-            QueuePopup::create(std::move(remaining))->show();
-            return;
-        }
-        buildPage();
-    }
-
     // confirm before nuking the whole queue
     void onRemoveAll(CCObject*) {
         auto alert = FLAlertLayer::create(
@@ -662,13 +586,11 @@ void fetchAndShowQueue() {
             std::vector<QueueEntry> entries;
             g_queueLevelIds.clear();
             g_queueLevelNames.clear();
-            g_queueRequestIds.clear();
 
             auto& json = *jsonRes;
             if (json.contains("requests") && json["requests"].isArray()) {
                 for (auto& item : json["requests"]) {
                     QueueEntry qe;
-                    qe.requestId    = item["id"].asInt().unwrapOr(0);
                     qe.name         = item["name"].asString().unwrapOr("Unknown");
                     qe.levelId      = item["level_id"].asString().unwrapOr("");
                     qe.youtubeUrl   = item["youtube_url"].asString().unwrapOr("");
@@ -678,7 +600,6 @@ void fetchAndShowQueue() {
                         if (!qe.levelId.empty()) {
                             g_queueLevelIds.insert(qe.levelId);
                             g_queueLevelNames[qe.levelId] = qe.name;
-                            g_queueRequestIds[qe.levelId] = qe.requestId;
                         }
                         entries.push_back(std::move(qe));
                     }
@@ -727,8 +648,6 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
 
         std::string lvlId = std::to_string(level->m_levelID);
         g_currentQueueLevelId.clear();
-        g_currentQueueRequestId = 0;
-        g_currentQueueRequester.clear();
 
         if (!g_queueLevelIds.empty() && g_queueLevelIds.count(lvlId)) {
             g_currentQueueLevelId = lvlId;
@@ -736,14 +655,9 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
             std::string requester = "Unknown";
             auto it = g_queueLevelNames.find(lvlId);
             if (it != g_queueLevelNames.end()) requester = it->second;
-            g_currentQueueRequester = requester;
-
-            auto idIt = g_queueRequestIds.find(lvlId);
-            if (idIt != g_queueRequestIds.end()) g_currentQueueRequestId = idIt->second;
 
             g_queueLevelIds.erase(lvlId);
             g_queueLevelNames.erase(lvlId);
-            g_queueRequestIds.erase(lvlId);
             sendQueueAction("/api/queue/played", lvlId);
 
             if (Mod::get()->getSettingValue<bool>("show-toast")) {
@@ -777,34 +691,25 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
         banSpr->setColor({220, 30, 30});
         banSpr->setScale(0.6f);
 
-        auto banIpSpr = CCLabelBMFont::create("Ban IP", "bigFont.fnt");
-        banIpSpr->setColor({255, 40, 40});
-        banIpSpr->setScale(0.6f);
-
         auto removeBtn = CCMenuItemSpriteExtra::create(
             removeSpr, this, menu_selector(GDReqPauseLayer::onRemoveFromQueue));
         auto banBtn = CCMenuItemSpriteExtra::create(
             banSpr, this, menu_selector(GDReqPauseLayer::onBanFromQueue));
-        auto banIpBtn = CCMenuItemSpriteExtra::create(
-            banIpSpr, this, menu_selector(GDReqPauseLayer::onBanIPFromQueue));
 
         float btnY  = ws.height * 0.07f;
         float rW    = removeSpr->getContentSize().width * removeSpr->getScale();
         float bW    = banSpr->getContentSize().width    * banSpr->getScale();
-        float biW   = banIpSpr->getContentSize().width  * banIpSpr->getScale();
         float gap   = 12.f;
         float midX  = ws.width / 2.f;
-        float totalW = rW + gap + bW + gap + biW;
+        float totalW = rW + gap + bW;
         float startX = midX - totalW / 2.f;
 
         auto menu = CCMenu::create();
         menu->setPosition({0.f, 0.f});
-        removeBtn->setPosition({startX + rW / 2.f,                          btnY});
-        banBtn->setPosition(   {startX + rW + gap + bW / 2.f,               btnY});
-        banIpBtn->setPosition( {startX + rW + gap + bW + gap + biW / 2.f,   btnY});
+        removeBtn->setPosition({startX + rW / 2.f,              btnY});
+        banBtn->setPosition(   {startX + rW + gap + bW / 2.f,   btnY});
         menu->addChild(removeBtn);
         menu->addChild(banBtn);
-        menu->addChild(banIpBtn);
         addChild(menu, 10);
     }
 
@@ -822,12 +727,6 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
         std::string lvlId = std::to_string(pl->m_level->m_levelID);
         g_queueLevelIds.erase(lvlId);
         sendQueueAction("/api/queue/blacklist", lvlId);
-    }
-
-    void onBanIPFromQueue(CCObject*) {
-        if (g_currentQueueRequestId > 0) {
-            sendBanIP(g_currentQueueRequestId, g_currentQueueRequester);
-        }
     }
 };
 
