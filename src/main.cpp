@@ -120,7 +120,8 @@ void sendTimeoutUser(const std::string& username) {
     );
 }
 
-void sendQueueRemoveAll() {
+
+
     auto token = Mod::get()->getSettingValue<std::string>("creator-token");
     if (token.empty()) return;
 
@@ -141,11 +142,13 @@ void sendQueueRemoveAll() {
 class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
     std::vector<QueueEntry> m_entries;
     int m_page = 0;
+    bool m_loading = false;
     static constexpr int PER_PAGE = 5;
 
-    bool init(std::vector<QueueEntry> entries) {
+    bool init(std::vector<QueueEntry> entries, bool loading) {
         if (!Popup::init(370.f, 295.f)) return false;
         m_entries = std::move(entries);
+        m_loading = loading;
         setTitle("Request Queue");
 
         auto sz = m_mainLayer->getContentSize();
@@ -157,6 +160,14 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             popupOverlay->drawPolygon(v, 4, {0.0f,0.0f,0.0f,0.45f}, 0.f, {0,0,0,0});
         }
         m_mainLayer->addChild(popupOverlay, -2);
+
+        if (m_loading) {
+            auto circle = LoadingCircle::create();
+            circle->setParentLayer(m_mainLayer);
+            circle->setPosition(sz / 2);
+            circle->show();
+            return true;
+        }
 
         if (m_entries.empty()) {
             auto lbl = CCLabelBMFont::create("Your queue is empty!", "bigFont.fnt", 280.f);
@@ -483,22 +494,85 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         sendTimeoutUser(m_entries[idx].name);
     }
 
-    // ban a level, stay in popup
+    // ban a level — delays the actual server call by 5s so the streamer can cancel
     void onBlacklist(CCObject* sender) {
         int idx = static_cast<CCNode*>(sender)->getTag();
         if (idx < 0 || idx >= (int)m_entries.size()) return;
         auto lvlId = m_entries[idx].levelId;
+        auto displayName = m_entries[idx].levelName.empty()
+            ? ("ID " + lvlId)
+            : m_entries[idx].levelName;
         g_queueLevelIds.erase(lvlId);
-        sendQueueAction("/api/queue/blacklist", lvlId);
         m_entries.erase(m_entries.begin() + idx);
+
+        // shared cancel flag — set to true if UNBAN is clicked before 5s elapses
+        auto cancelled = std::make_shared<bool>(false);
+
+        // show toast immediately
+        Notification::create(
+            fmt::format("{} is banned", displayName),
+            NotificationIcon::Warning, 5.f
+        )->show();
+
+        // floating UNBAN button — cancels the ban before it reaches the server
+        auto scene = CCDirector::get()->getRunningScene();
+        if (scene) {
+            auto ws = CCDirector::get()->getWinSize();
+
+            auto unbanLbl = CCLabelBMFont::create("UNBAN", "bigFont.fnt");
+            unbanLbl->setColor({100, 220, 255});
+            unbanLbl->setScale(0.45f);
+
+            struct CancelHelper : public CCObject {
+                std::shared_ptr<bool> cancelled;
+                std::string name;
+                CCMenu* menu = nullptr;
+                void onCancel(CCObject*) {
+                    *cancelled = true;
+                    Notification::create(
+                        fmt::format("{} ban cancelled", name),
+                        NotificationIcon::Success, 2.f
+                    )->show();
+                    if (menu) menu->removeFromParent();
+                }
+            };
+            auto* helper = new CancelHelper();
+            helper->autorelease();
+            helper->cancelled = cancelled;
+            helper->name      = displayName;
+
+            auto menu = CCMenu::create();
+            menu->addChild(CCMenuItemSpriteExtra::create(
+                unbanLbl, helper, menu_selector(CancelHelper::onCancel)
+            ));
+            menu->setPosition({ws.width / 2.f + 80.f, 35.f});
+            helper->menu = menu;
+            scene->addChild(menu, 9999);
+            menu->runAction(CCSequence::create(
+                CCDelayTime::create(5.f),
+                CCCallFunc::create(menu, callfunc_selector(CCNode::removeFromParent)),
+                nullptr
+            ));
+        }
+
+        // fire the actual ban after 5s — only if not cancelled
+        auto lvlIdCopy = lvlId;
+        CCDirector::get()->getScheduler()->schedule(
+            [cancelled, lvlIdCopy](float) {
+                if (!*cancelled)
+                    sendQueueAction("/api/queue/blacklist", lvlIdCopy);
+            },
+            this, 5.f, 0, 0.f, false, "ban_delay_" + lvlId
+        );
+
         if (m_entries.empty()) {
-            auto remaining = m_entries;
             onClose(nullptr);
-            QueuePopup::create(std::move(remaining))->show();
+            QueuePopup::create({})->show();
             return;
         }
         buildPage();
     }
+
 
     // confirm before nuking the whole queue
     void onRemoveAll(CCObject*) {
@@ -537,11 +611,44 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
     }
 
 public:
-    static QueuePopup* create(std::vector<QueueEntry> entries) {
+    // show immediately with a loading spinner
+    static QueuePopup* createLoading() {
         auto p = new QueuePopup();
-        if (p->init(std::move(entries))) { p->autorelease(); return p; }
+        if (p->init({}, true)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
+    }
+
+    // show with entries directly (no loading state)
+    static QueuePopup* create(std::vector<QueueEntry> entries) {
+        auto p = new QueuePopup();
+        if (p->init(std::move(entries), false)) { p->autorelease(); return p; }
+        CC_SAFE_DELETE(p);
+        return nullptr;
+    }
+
+    // called after fetch completes to swap out the spinner for real content
+    void populate(std::vector<QueueEntry> entries) {
+        m_loading = false;
+        m_entries = std::move(entries);
+        // remove the loading circle (it's a child of m_mainLayer)
+        m_mainLayer->removeAllChildrenWithCleanup(true);
+        // re-add the dim overlay
+        auto sz = m_mainLayer->getContentSize();
+        auto popupOverlay = CCDrawNode::create();
+        {
+            CCPoint v[] = {{0,0},{sz.width,0},{sz.width,sz.height},{0,sz.height}};
+            popupOverlay->drawPolygon(v, 4, {0.0f,0.0f,0.0f,0.45f}, 0.f, {0,0,0,0});
+        }
+        m_mainLayer->addChild(popupOverlay, -2);
+        if (m_entries.empty()) {
+            auto lbl = CCLabelBMFont::create("Your queue is empty!", "bigFont.fnt", 280.f);
+            lbl->setScale(0.5f);
+            lbl->setPosition(sz / 2);
+            m_mainLayer->addChild(lbl);
+            return;
+        }
+        buildPage();
     }
 };
 
@@ -562,7 +669,11 @@ void fetchAndShowQueue() {
         return;
     }
 
-    Notification::create("Checking the queue...", NotificationIcon::Loading, 3.f)->show();
+    // Show the popup immediately with a loading spinner
+    auto popup = QueuePopup::createLoading();
+    popup->show();
+    // Keep a retained ref so we can populate it after the fetch
+    popup->retain();
 
     std::string queueUrl = SERVER + "/api/queue/" + token;
 
@@ -570,9 +681,11 @@ void fetchAndShowQueue() {
         [queueUrl]() -> web::WebFuture {
             return web::WebRequest().get(queueUrl);
         },
-        [token](web::WebResponse res) {
+        [token, popup](web::WebResponse res) {
             if (!res.ok()) {
                 g_fetchInProgress = false;
+                popup->release();
+                popup->onClose(nullptr);
                 std::string msg = res.code() == 404
                     ? "Creator token not recognised. Double-check the token in Mods > GD Requests > Settings — copy it again from gdrequests.org."
                     : "Could not reach the server. Check your internet connection.";
@@ -583,6 +696,8 @@ void fetchAndShowQueue() {
             auto jsonRes = res.json();
             if (!jsonRes) {
                 g_fetchInProgress = false;
+                popup->release();
+                popup->onClose(nullptr);
                 FLAlertLayer::create("GD Requests", "Invalid server response.", "OK")->show();
                 return;
             }
@@ -611,7 +726,8 @@ void fetchAndShowQueue() {
             }
 
             if (entries.empty()) {
-                QueuePopup::create(std::move(entries))->show();
+                popup->populate({});
+                popup->release();
                 return;
             }
 
@@ -628,7 +744,7 @@ void fetchAndShowQueue() {
                 [statusUrl]() -> web::WebFuture {
                     return web::WebRequest().get(statusUrl);
                 },
-                [entries = std::move(entries)](web::WebResponse statusRes) mutable {
+                [entries = std::move(entries), popup](web::WebResponse statusRes) mutable {
                     if (statusRes.ok()) {
                         auto sJson = statusRes.json();
                         if (sJson) {
@@ -638,7 +754,8 @@ void fetchAndShowQueue() {
                             }
                         }
                     }
-                    QueuePopup::create(std::move(entries))->show();
+                    popup->populate(std::move(entries));
+                    popup->release();
                 }
             );
         }
@@ -651,14 +768,19 @@ static void toggleBlackScreen() {
 
     g_blackScreenActive = !g_blackScreenActive;
 
-    auto existing = pl->getChildByTag(9871);
+    // Use m_uiLayer so the black screen is above camera/shader layers
+    // and static camera triggers can't move or clip it
+    auto uiLayer = pl->m_uiLayer;
+    if (!uiLayer) return;
+
+    auto existing = uiLayer->getChildByTag(9871);
     if (g_blackScreenActive) {
         if (existing) return;
         auto ws = CCDirector::get()->getWinSize();
         auto black = CCLayerColor::create({0, 0, 0, 255}, ws.width, ws.height);
         black->setTag(9871);
-        black->setZOrder(-1);
-        pl->addChild(black, -1);
+        black->setPosition({0, 0});
+        uiLayer->addChild(black, 9990);
     } else {
         if (existing) existing->removeFromParent();
     }
@@ -680,6 +802,8 @@ struct $modify(GDReqPlayLayer, PlayLayer) {
         std::string lvlId = std::to_string(level->m_levelID);
         g_currentQueueLevelId.clear();
         g_blackScreenActive = false;
+        // black screen node lives in m_uiLayer which is built during init,
+        // so nothing to remove here — the flag reset above is sufficient
 
         if (!g_queueLevelIds.empty() && g_queueLevelIds.count(lvlId)) {
             g_currentQueueLevelId = lvlId;
@@ -797,8 +921,65 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
         auto pl = PlayLayer::get();
         if (!pl || !pl->m_level) return;
         std::string lvlId = std::to_string(pl->m_level->m_levelID);
+        std::string displayName = "ID " + lvlId;
         g_queueLevelIds.erase(lvlId);
-        sendQueueAction("/api/queue/blacklist", lvlId);
+
+        // shared cancel flag
+        auto cancelled = std::make_shared<bool>(false);
+
+        Notification::create(
+            fmt::format("{} is banned", displayName),
+            NotificationIcon::Warning, 5.f
+        )->show();
+
+        auto scene = CCDirector::get()->getRunningScene();
+        if (scene) {
+            auto ws = CCDirector::get()->getWinSize();
+
+            auto unbanLbl = CCLabelBMFont::create("UNBAN", "bigFont.fnt");
+            unbanLbl->setColor({100, 220, 255});
+            unbanLbl->setScale(0.45f);
+
+            struct CancelHelper : public CCObject {
+                std::shared_ptr<bool> cancelled;
+                std::string name;
+                CCMenu* menu = nullptr;
+                void onCancel(CCObject*) {
+                    *cancelled = true;
+                    Notification::create(
+                        fmt::format("{} ban cancelled", name),
+                        NotificationIcon::Success, 2.f
+                    )->show();
+                    if (menu) menu->removeFromParent();
+                }
+            };
+            auto* helper = new CancelHelper();
+            helper->autorelease();
+            helper->cancelled = cancelled;
+            helper->name      = displayName;
+
+            auto menu = CCMenu::create();
+            menu->addChild(CCMenuItemSpriteExtra::create(
+                unbanLbl, helper, menu_selector(CancelHelper::onCancel)
+            ));
+            menu->setPosition({ws.width / 2.f + 80.f, 35.f});
+            helper->menu = menu;
+            scene->addChild(menu, 9999);
+            menu->runAction(CCSequence::create(
+                CCDelayTime::create(5.f),
+                CCCallFunc::create(menu, callfunc_selector(CCNode::removeFromParent)),
+                nullptr
+            ));
+        }
+
+        auto lvlIdCopy = lvlId;
+        CCDirector::get()->getScheduler()->schedule(
+            [cancelled, lvlIdCopy](float) {
+                if (!*cancelled)
+                    sendQueueAction("/api/queue/blacklist", lvlIdCopy);
+            },
+            this, 5.f, 0, 0.f, false, "ban_delay_pause_" + lvlId
+        );
     }
 };
 
