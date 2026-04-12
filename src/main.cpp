@@ -121,7 +121,7 @@ void sendTimeoutUser(const std::string& username) {
 }
 
 
-
+void sendQueueRemoveAll() {
     auto token = Mod::get()->getSettingValue<std::string>("creator-token");
     if (token.empty()) return;
 
@@ -556,14 +556,31 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         }
 
         // fire the actual ban after 5s — only if not cancelled
-        auto lvlIdCopy = lvlId;
-        CCDirector::get()->getScheduler()->schedule(
-            [cancelled, lvlIdCopy](float) {
+        // CCCallFunc doesn't accept lambdas; use a helper CCObject with a method
+        struct BanHelper : public CCObject {
+            std::shared_ptr<bool> cancelled;
+            std::string levelId;
+            void fireBan(CCObject*) {
                 if (!*cancelled)
-                    sendQueueAction("/api/queue/blacklist", lvlIdCopy);
-            },
-            this, 5.f, 0, 0.f, false, "ban_delay_" + lvlId
-        );
+                    sendQueueAction("/api/queue/blacklist", levelId);
+            }
+        };
+        auto lvlIdCopy = lvlId;
+        auto* banHelper = new BanHelper();
+        banHelper->autorelease();
+        banHelper->cancelled = cancelled;
+        banHelper->levelId   = lvlIdCopy;
+        // Retain so it survives the 5s delay
+        banHelper->retain();
+        auto banNode = CCNode::create();
+        CCDirector::get()->getRunningScene()->addChild(banNode);
+        banNode->runAction(CCSequence::create(
+            CCDelayTime::create(5.f),
+            CCCallFuncN::create(banHelper, callfuncN_selector(BanHelper::fireBan)),
+            CCCallFunc::create(banNode, callfunc_selector(CCNode::removeFromParent)),
+            nullptr
+        ));
+        banHelper->release();
 
         if (m_entries.empty()) {
             onClose(nullptr);
@@ -685,7 +702,7 @@ void fetchAndShowQueue() {
             if (!res.ok()) {
                 g_fetchInProgress = false;
                 popup->release();
-                popup->onClose(nullptr);
+                popup->removeFromParentAndCleanup(true);
                 std::string msg = res.code() == 404
                     ? "Creator token not recognised. Double-check the token in Mods > GD Requests > Settings — copy it again from gdrequests.org."
                     : "Could not reach the server. Check your internet connection.";
@@ -697,7 +714,7 @@ void fetchAndShowQueue() {
             if (!jsonRes) {
                 g_fetchInProgress = false;
                 popup->release();
-                popup->onClose(nullptr);
+                popup->removeFromParentAndCleanup(true);
                 FLAlertLayer::create("GD Requests", "Invalid server response.", "OK")->show();
                 return;
             }
@@ -972,14 +989,29 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
             ));
         }
 
-        auto lvlIdCopy = lvlId;
-        CCDirector::get()->getScheduler()->schedule(
-            [cancelled, lvlIdCopy](float) {
+        struct BanHelper2 : public CCObject {
+            std::shared_ptr<bool> cancelled;
+            std::string levelId;
+            void fireBan(CCObject*) {
                 if (!*cancelled)
-                    sendQueueAction("/api/queue/blacklist", lvlIdCopy);
-            },
-            this, 5.f, 0, 0.f, false, "ban_delay_pause_" + lvlId
-        );
+                    sendQueueAction("/api/queue/blacklist", levelId);
+            }
+        };
+        auto lvlIdCopy = lvlId;
+        auto* banHelper = new BanHelper2();
+        banHelper->autorelease();
+        banHelper->cancelled = cancelled;
+        banHelper->levelId   = lvlIdCopy;
+        banHelper->retain();
+        auto banNode = CCNode::create();
+        CCDirector::get()->getRunningScene()->addChild(banNode);
+        banNode->runAction(CCSequence::create(
+            CCDelayTime::create(5.f),
+            CCCallFuncN::create(banHelper, callfuncN_selector(BanHelper2::fireBan)),
+            CCCallFunc::create(banNode, callfunc_selector(CCNode::removeFromParent)),
+            nullptr
+        ));
+        banHelper->release();
     }
 };
 
