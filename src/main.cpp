@@ -144,17 +144,16 @@ static constexpr int LOADING_CIRCLE_TAG = 9880;
 static constexpr int CONTENT_ROOT_TAG   = 9881;
 
 // popup that shows 5 entries per page
-class QueuePopup : public geode::Popup<>, public FLAlertLayerProtocol {
+class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
     std::vector<QueueEntry> m_entries;
     int m_page = 0;
     bool m_loading = false;
     static constexpr int PER_PAGE = 5;
 
-    bool init(std::vector<QueueEntry> entries, bool loading) {
-        if (!Popup::init(370.f, 295.f)) return false;
+    bool setup(std::vector<QueueEntry> entries, bool loading) override {
         m_entries = std::move(entries);
         m_loading = loading;
-        setTitle("Request Queue");
+        this->setTitle("Request Queue");
 
         auto sz = m_mainLayer->getContentSize();
 
@@ -167,17 +166,17 @@ class QueuePopup : public geode::Popup<>, public FLAlertLayerProtocol {
         m_mainLayer->addChild(popupOverlay, -2);
 
         if (m_loading) {
-            // FIX: tag a wrapper node so populate() can remove ONLY the spinner,
-            //      leaving the title / close button (added by Popup::init) intact.
-            auto spinnerRoot = CCNode::create();
+
+            // Tag a wrapper node so populate() can remove ONLY the spinner
+            auto spinnerRoot = CCLayer::create();
             spinnerRoot->setTag(LOADING_CIRCLE_TAG);
-            spinnerRoot->setContentSize(sz);
+            spinnerRoot->setContentSize(m_mainLayer->getContentSize());
             m_mainLayer->addChild(spinnerRoot, 10);
 
             auto circle = LoadingCircle::create();
             circle->setParentLayer(spinnerRoot);
-            // FIX: explicitly center the circle inside the popup
-            circle->setPosition(sz / 2);
+            // explicitly center the circle inside the popup
+            circle->setPosition(m_mainLayer->getContentSize() / 2);
             circle->show();
             return true;
         }
@@ -611,22 +610,18 @@ class QueuePopup : public geode::Popup<>, public FLAlertLayerProtocol {
 
     // confirm before nuking the whole queue
     void onRemoveAll(CCObject*) {
-        auto alert = FLAlertLayer::create(
-            this,
+        geode::createQuickPopup(
             "Remove All",
             "Are you sure you want to <cr>remove all</c> pending requests?",
-            "Cancel",
-            "Remove All"
+            "Cancel", "Remove All",
+            [this](auto, bool btn2) {
+                if (!btn2) return;
+                sendQueueRemoveAll();
+                g_queueLevelIds.clear();
+                m_entries.clear();
+                buildEmpty();
+            }
         );
-        alert->show();
-    }
-
-    void FLAlert_Clicked(FLAlertLayer*, bool btn2) override {
-        if (!btn2) return;
-        sendQueueRemoveAll();
-        g_queueLevelIds.clear();
-        m_entries.clear();
-        buildEmpty();
     }
 
     // open a youtube link in browser
@@ -640,7 +635,7 @@ class QueuePopup : public geode::Popup<>, public FLAlertLayerProtocol {
         CCApplication::sharedApplication()->openURL(url.c_str());
     }
 
-    ~QueuePopup() override {
+    ~QueuePopup() {
         g_fetchInProgress = false;
     }
 
@@ -648,7 +643,7 @@ public:
     // show immediately with a loading spinner
     static QueuePopup* createLoading() {
         auto p = new QueuePopup();
-        if (p->init({}, true)) { p->autorelease(); return p; }
+        if (p->initAnchored(370.f, 295.f, {}, true)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
@@ -656,7 +651,7 @@ public:
     // show with entries directly (no loading state)
     static QueuePopup* create(std::vector<QueueEntry> entries) {
         auto p = new QueuePopup();
-        if (p->init(std::move(entries), false)) { p->autorelease(); return p; }
+        if (p->initAnchored(370.f, 295.f, std::move(entries), false)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
