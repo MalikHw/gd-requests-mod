@@ -159,21 +159,21 @@ static ccColor3B sourceColor(const std::string& source) {
 }
 
 // popup that shows 5 entries per page
-class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
+class QueuePopup : public geode::Popup {
     std::vector<QueueEntry> m_entries;
     int m_page = 0;
     bool m_loading = false;
     static constexpr int PER_PAGE = 5;
 
 protected:
-    bool setup(std::vector<QueueEntry> entries, bool loading) override {
+    bool init(std::vector<QueueEntry> entries, bool loading) {
+        if (!Popup::init(370.f, 295.f)) return false;
         m_entries = std::move(entries);
         m_loading = loading;
         this->setTitle("Request Queue");
 
         auto sz = m_mainLayer->getContentSize();
 
-        // dim background behind content
         auto popupOverlay = CCDrawNode::create();
         {
             CCPoint v[] = {{0,0},{sz.width,0},{sz.width,sz.height},{0,sz.height}};
@@ -182,25 +182,21 @@ protected:
         m_mainLayer->addChild(popupOverlay, -2);
 
         if (m_loading) {
-
-            // Tag a wrapper node so populate() can remove ONLY the spinner
             auto spinnerRoot = CCLayer::create();
             spinnerRoot->setTag(LOADING_CIRCLE_TAG);
-            spinnerRoot->setContentSize(m_mainLayer->getContentSize());
+           spinnerRoot->setContentSize(m_mainLayer->getContentSize());
             m_mainLayer->addChild(spinnerRoot, 10);
-
             auto circle = LoadingCircle::create();
             circle->setParentLayer(spinnerRoot);
-            // explicitly center the circle inside the popup
             circle->setPosition(m_mainLayer->getContentSize() / 2);
             circle->show();
             return true;
         }
 
-        if (m_entries.empty()) {
-            buildEmpty();
-            return true;
-        }
+        if (m_entries.empty()) { buildEmpty(); return true; }
+        buildPage();
+        return true;
+    }
 
         buildPage();
         return true;
@@ -654,35 +650,26 @@ protected:
     }
 
 public:
-    // show immediately with a loading spinner
-    static QueuePopup* createLoading() {
+    static QueuePopup* createLoading() { // show popup directly
         auto p = new QueuePopup();
-        if (p->initAnchored(370.f, 295.f, std::vector<QueueEntry>{}, true)) { p->autorelease(); return p; }
+        if (p->init(std::vector<QueueEntry>{}, true)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
 
-    // show with entries directly (no loading state)
     static QueuePopup* create(std::vector<QueueEntry> entries) {
         auto p = new QueuePopup();
-        if (p->initAnchored(370.f, 295.f, std::move(entries), false)) { p->autorelease(); return p; }
+        if (p->init(std::move(entries), false)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
 
-    // called after fetch completes — swaps out ONLY the spinner, leaves title/close intact
     void populate(std::vector<QueueEntry> entries) {
         m_loading = false;
         m_entries = std::move(entries);
-
-        // FIX: remove only the spinner wrapper, NOT everything in m_mainLayer
         if (auto spinnerRoot = m_mainLayer->getChildByTag(LOADING_CIRCLE_TAG))
             spinnerRoot->removeFromParent();
-
-        if (m_entries.empty()) {
-            buildEmpty();
-            return;
-        }
+        if (m_entries.empty()) { buildEmpty(); return; }
         buildPage();
     }
 };
