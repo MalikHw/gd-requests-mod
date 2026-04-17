@@ -657,7 +657,7 @@ public:
     // show immediately with a loading spinner
     static QueuePopup* createLoading() {
         auto p = new QueuePopup();
-        if (p->initAnchored(370.f, 295.f, std::vector<QueueEntry>{}, false)) { p->autorelease(); return p; }
+        if (p->initAnchored(370.f, 295.f, std::vector<QueueEntry>{}, true)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
