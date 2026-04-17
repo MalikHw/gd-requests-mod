@@ -198,10 +198,6 @@ protected:
         return true;
     }
 
-        buildPage();
-        return true;
-    }
-
     void buildEmpty() {
         // remove any previous content root
         if (auto n = m_mainLayer->getChildByTag(CONTENT_ROOT_TAG)) n->removeFromParent();
