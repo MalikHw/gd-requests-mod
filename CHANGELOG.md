@@ -2,7 +2,8 @@
 
 ## v2.5.2
 - (DEV ONLY) now uses `matjson` instead of manual parsing
-- ui bug fixes
+- ui bug fix
+- another UI bug (spinning circle is on top right sorry it'll be fixed soon)
 - i forgot what else...
 
 ## v2.5.1
