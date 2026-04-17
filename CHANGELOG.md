@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.5.2
+- (DEV ONLY) now uses `matjson` instead of manual parsing
+- ui bug fixes
+- i forgot what else...
+
 ## v2.5.1
 - blackscreen toggle works for mobile now by adding a button
 
