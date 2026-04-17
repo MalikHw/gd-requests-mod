@@ -165,6 +165,7 @@ class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
     bool m_loading = false;
     static constexpr int PER_PAGE = 5;
 
+protected:
     bool setup(std::vector<QueueEntry> entries, bool loading) override {
         m_entries = std::move(entries);
         m_loading = loading;
@@ -656,7 +657,7 @@ public:
     // show immediately with a loading spinner
     static QueuePopup* createLoading() {
         auto p = new QueuePopup();
-        if (p->initAnchored(370.f, 295.f, {}, true)) { p->autorelease(); return p; }
+        if (p->initAnchored(370.f, 295.f, std::vector<QueueEntry>{}, false)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
