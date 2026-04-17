@@ -16,22 +16,6 @@ using namespace geode::prelude;
 
 static const std::string SERVER = "https://www.gdrequests.org";
 
-// sanitize strings before stuffing them into JSON
-static std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;
-        }
-    }
-    return out;
-}
 
 static std::unordered_set<std::string> g_queueLevelIds;
 static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelId -> requester
@@ -56,10 +40,10 @@ void sendQueueAction(const std::string& endpoint, const std::string& levelId) {
     if (token.empty()) return;
 
     std::string url  = SERVER + endpoint;
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"level_id\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(levelId)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"level_id", levelId}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -76,10 +60,10 @@ void sendQueueRemoveYoutube(const std::string& youtubeUrl) {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/remove";
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"youtube_url\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(youtubeUrl)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"youtube_url", youtubeUrl}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -96,10 +80,10 @@ void sendTimeoutUser(const std::string& username) {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/timeout";
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"username\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(username)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"username", username}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -128,7 +112,9 @@ void sendQueueRemoveAll() {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/remove-all";
-    std::string body = fmt::format("{{\"token\":\"{}\"}}", jsonEscape(token));
+    std::string body = matjson::makeObject({
+        {"token", token}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -184,11 +170,11 @@ protected:
         if (m_loading) {
             auto spinnerRoot = CCLayer::create();
             spinnerRoot->setTag(LOADING_CIRCLE_TAG);
-           spinnerRoot->setContentSize(m_mainLayer->getContentSize());
+            spinnerRoot->setContentSize(m_mainLayer->getContentSize());
+            spinnerRoot->setPosition(m_mainLayer->getContentSize() / 2); // center
             m_mainLayer->addChild(spinnerRoot, 10);
             auto circle = LoadingCircle::create();
             circle->setParentLayer(spinnerRoot);
-            circle->setPosition(m_mainLayer->getContentSize() / 2);
             circle->show();
             return true;
         }
