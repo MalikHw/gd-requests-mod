@@ -1,4 +1,5 @@
 #include <Geode/Geode.hpp>
+#include <Geode/ui/Popup.hpp>
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
 #include <Geode/modify/MenuLayer.hpp>
@@ -45,6 +46,7 @@ struct QueueEntry {
     std::string youtubeUrl;
     std::string levelName;
     std::string gdDifficulty;
+    std::string source; // "twitch", "youtube", or empty/unknown
     bool online = false;
 };
 
@@ -142,6 +144,19 @@ void sendQueueRemoveAll() {
 static constexpr int LOADING_CIRCLE_TAG = 9880;
 // Tag used to identify content nodes added by buildPage / empty label
 static constexpr int CONTENT_ROOT_TAG   = 9881;
+
+// Returns a short colored source tag label for Twitch/YouTube
+static std::string sourceTag(const std::string& source) {
+    if (source == "twitch") return " [TTV]";
+    if (source == "youtube") return " [YT]";
+    return "";
+}
+
+static ccColor3B sourceColor(const std::string& source) {
+    if (source == "twitch") return {145, 70, 255};  // Twitch purple
+    if (source == "youtube") return {255, 70, 70};   // YouTube red
+    return {180, 180, 200};
+}
 
 // popup that shows 5 entries per page
 class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
@@ -317,13 +332,11 @@ class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
             topLbl->setAnchorPoint({0.f, 0.5f});
             topLbl->setPosition({28.f, inner / 2.f + 8.f});
 
-            // bottom line: requester name + difficulty tag
-            std::string bottomText = e.name;
+            // bottom line: requester name + source tag + difficulty
+            std::string bottomText = e.name + sourceTag(e.source);
             if (!e.levelId.empty() && !e.gdDifficulty.empty() && e.gdDifficulty != "na") {
-                // format difficulty nicely
                 std::string diff = e.gdDifficulty;
                 for (auto& ch : diff) if (ch == '_') ch = ' ';
-                // capitalize first letter of each word
                 bool cap = true;
                 for (auto& ch : diff) {
                     if (cap && ch >= 'a' && ch <= 'z') ch -= 32;
@@ -333,7 +346,7 @@ class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
             }
             auto bottomLbl = CCLabelBMFont::create(bottomText.c_str(), "bigFont.fnt", 200.f);
             bottomLbl->setScale(0.30f);
-            bottomLbl->setColor({180, 180, 200});
+            bottomLbl->setColor(sourceColor(e.source));
             bottomLbl->setAnchorPoint({0.f, 0.5f});
             bottomLbl->setPosition({28.f, inner / 2.f - 9.f});
 
@@ -588,7 +601,7 @@ class QueuePopup : public geode::Popup<std::vector<QueueEntry>, bool> {
         banHelper->autorelease();
         banHelper->cancelled = cancelled;
         banHelper->levelId   = lvlIdCopy;
-        // Retain so it survives the 5s delay
+        // Retain so it survives the 5s delay uwu
         banHelper->retain();
         auto banNode = CCNode::create();
         CCDirector::get()->getRunningScene()->addChild(banNode);
@@ -736,6 +749,7 @@ void fetchAndShowQueue() {
                     qe.youtubeUrl   = item["youtube_url"].asString().unwrapOr("");
                     qe.levelName    = item["level_name"].asString().unwrapOr("");
                     qe.gdDifficulty = item["gd_difficulty"].asString().unwrapOr("");
+                    qe.source       = item["source"].asString().unwrapOr(""); // "twitch" or "youtube"
                     if (!qe.levelId.empty() || !qe.youtubeUrl.empty()) {
                         if (!qe.levelId.empty()) {
                             g_queueLevelIds.insert(qe.levelId);
