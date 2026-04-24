@@ -1,4 +1,5 @@
 #include <Geode/Geode.hpp>
+#include <Geode/ui/Popup.hpp>
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
 #include <Geode/modify/MenuLayer.hpp>
@@ -15,22 +16,6 @@ using namespace geode::prelude;
 
 static const std::string SERVER = "https://www.gdrequests.org";
 
-// sanitize strings before stuffing them into JSON
-static std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;
-        }
-    }
-    return out;
-}
 
 static std::unordered_set<std::string> g_queueLevelIds;
 static std::unordered_map<std::string, std::string> g_queueLevelNames; // levelId -> requester
@@ -45,6 +30,7 @@ struct QueueEntry {
     std::string youtubeUrl;
     std::string levelName;
     std::string gdDifficulty;
+    std::string source; // "twitch", "youtube", or empty/unknown
     bool online = false;
 };
 
@@ -54,10 +40,10 @@ void sendQueueAction(const std::string& endpoint, const std::string& levelId) {
     if (token.empty()) return;
 
     std::string url  = SERVER + endpoint;
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"level_id\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(levelId)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"level_id", levelId}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -74,10 +60,10 @@ void sendQueueRemoveYoutube(const std::string& youtubeUrl) {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/remove";
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"youtube_url\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(youtubeUrl)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"youtube_url", youtubeUrl}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -94,10 +80,10 @@ void sendTimeoutUser(const std::string& username) {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/timeout";
-    std::string body = fmt::format(
-        "{{\"token\":\"{}\",\"username\":\"{}\"}}",
-        jsonEscape(token), jsonEscape(username)
-    );
+    std::string body = matjson::makeObject({
+        {"token", token},
+        {"username", username}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -126,7 +112,9 @@ void sendQueueRemoveAll() {
     if (token.empty()) return;
 
     std::string url  = SERVER + "/api/queue/remove-all";
-    std::string body = fmt::format("{{\"token\":\"{}\"}}", jsonEscape(token));
+    std::string body = matjson::makeObject({
+        {"token", token}
+    }).dump();
     geode::async::spawn(
         [url, body]() -> web::WebFuture {
             return web::WebRequest()
@@ -138,22 +126,40 @@ void sendQueueRemoveAll() {
     );
 }
 
+// Tag used to identify the loading circle node so we can remove only it
+static constexpr int LOADING_CIRCLE_TAG = 9880;
+// Tag used to identify content nodes added by buildPage / empty label
+static constexpr int CONTENT_ROOT_TAG   = 9881;
+
+// Returns a short colored source tag label for Twitch/YouTube
+static std::string sourceTag(const std::string& source) {
+    if (source == "twitch") return " [TTV]";
+    if (source == "youtube") return " [YT]";
+    return "";
+}
+
+static ccColor3B sourceColor(const std::string& source) {
+    if (source == "twitch") return {145, 70, 255};  // Twitch purple
+    if (source == "youtube") return {255, 70, 70};   // YouTube red
+    return {180, 180, 200};
+}
+
 // popup that shows 5 entries per page
-class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
+class QueuePopup : public geode::Popup {
     std::vector<QueueEntry> m_entries;
     int m_page = 0;
     bool m_loading = false;
     static constexpr int PER_PAGE = 5;
 
+protected:
     bool init(std::vector<QueueEntry> entries, bool loading) {
         if (!Popup::init(370.f, 295.f)) return false;
         m_entries = std::move(entries);
         m_loading = loading;
-        setTitle("Request Queue");
+        this->setTitle("Request Queue");
 
         auto sz = m_mainLayer->getContentSize();
 
-        // dim background behind content
         auto popupOverlay = CCDrawNode::create();
         {
             CCPoint v[] = {{0,0},{sz.width,0},{sz.width,sz.height},{0,sz.height}};
@@ -162,32 +168,43 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         m_mainLayer->addChild(popupOverlay, -2);
 
         if (m_loading) {
+            auto spinnerRoot = CCLayer::create();
+            spinnerRoot->setTag(LOADING_CIRCLE_TAG);
+            spinnerRoot->setContentSize(m_mainLayer->getContentSize());
+            spinnerRoot->setPosition(m_mainLayer->getContentSize() / 2); // center
+            m_mainLayer->addChild(spinnerRoot, 10);
             auto circle = LoadingCircle::create();
-            circle->setParentLayer(m_mainLayer);
-            circle->setPosition(sz / 2);
+            circle->setParentLayer(spinnerRoot);
             circle->show();
             return true;
         }
 
-        if (m_entries.empty()) {
-            auto lbl = CCLabelBMFont::create("Your queue is empty!", "bigFont.fnt", 280.f);
-            lbl->setScale(0.5f);
-            lbl->setPosition(sz / 2);
-            m_mainLayer->addChild(lbl);
-            return true;
-        }
-
+        if (m_entries.empty()) { buildEmpty(); return true; }
         buildPage();
         return true;
     }
 
+    void buildEmpty() {
+        // remove any previous content root
+        if (auto n = m_mainLayer->getChildByTag(CONTENT_ROOT_TAG)) n->removeFromParent();
+
+        auto sz = m_mainLayer->getContentSize();
+        auto root = CCNode::create();
+        root->setTag(CONTENT_ROOT_TAG);
+        root->setContentSize(sz);
+
+        auto lbl = CCLabelBMFont::create("Your queue is empty!", "bigFont.fnt", 280.f);
+        lbl->setScale(0.5f);
+        lbl->setPosition(sz / 2);
+        root->addChild(lbl);
+
+        m_mainLayer->addChild(root);
+    }
+
     // wipes old page nodes and draws the current page
     void buildPage() {
-        if (auto n = m_mainLayer->getChildByTag(900)) n->removeFromParent();
-        if (auto n = m_mainLayer->getChildByTag(901)) n->removeFromParent();
-        if (auto n = m_mainLayer->getChildByTag(902)) n->removeFromParent();
-        if (auto n = m_mainLayer->getChildByTag(903)) n->removeFromParent();
-        if (auto n = m_mainLayer->getChildByTag(904)) n->removeFromParent();
+        // remove previous content root only — title / close button are unaffected
+        if (auto n = m_mainLayer->getChildByTag(CONTENT_ROOT_TAG)) n->removeFromParent();
 
         auto sz = m_mainLayer->getContentSize();
         int total = (int)m_entries.size();
@@ -197,6 +214,12 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         int startIdx = m_page * PER_PAGE;
         int endIdx   = std::min(startIdx + PER_PAGE, total);
 
+        // single root node that owns everything on this page
+        auto root = CCNode::create();
+        root->setTag(CONTENT_ROOT_TAG);
+        root->setContentSize(sz);
+        m_mainLayer->addChild(root);
+
         // "X pending requests" label
         auto countLbl = CCLabelBMFont::create(
             fmt::format("{} pending request{}",
@@ -204,13 +227,11 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             "goldFont.fnt", 260.f
         );
         countLbl->setScale(0.35f);
-        countLbl->setTag(900);
         countLbl->setPosition({sz.width / 2.f, sz.height - 38.f});
-        m_mainLayer->addChild(countLbl);
+        root->addChild(countLbl);
 
         // remove all button (top right)
         auto removeAllMenu = CCMenu::create();
-        removeAllMenu->setTag(904);
         removeAllMenu->setPosition({0.f, 0.f});
 
         auto removeAllLbl = CCLabelBMFont::create("Remove All", "bigFont.fnt", 200.f);
@@ -220,7 +241,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             removeAllLbl, this, menu_selector(QueuePopup::onRemoveAll));
         removeAllBtn->setPosition({sz.width - 50.f, sz.height - 38.f});
         removeAllMenu->addChild(removeAllBtn);
-        m_mainLayer->addChild(removeAllMenu);
+        root->addChild(removeAllMenu);
 
         // layout constants
         const float rowH     = 43.f;
@@ -230,14 +251,9 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         const bool  ytEnabled = Mod::get()->getSettingValue<bool>("open-youtube");
         const float topY     = sz.height - 52.f;
 
-        auto container = CCNode::create();
-        container->setTag(901);
-        container->setContentSize(sz);
-        m_mainLayer->addChild(container);
-
         auto menu = CCMenu::create();
         menu->setPosition({0.f, 0.f});
-        container->addChild(menu);
+        root->addChild(menu);
 
         for (int idx = startIdx; idx < endIdx; idx++) {
             auto& e = m_entries[idx];
@@ -259,7 +275,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             }
             bg->setAnchorPoint({0.f, 0.5f});
             bg->setPosition({rowLeft, rowCY - inner / 2.f});
-            container->addChild(bg, -1);
+            root->addChild(bg, -1);
 
             // queue position number
             auto numLbl = CCLabelBMFont::create(
@@ -295,13 +311,11 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             topLbl->setAnchorPoint({0.f, 0.5f});
             topLbl->setPosition({28.f, inner / 2.f + 8.f});
 
-            // bottom line: requester name + difficulty tag
-            std::string bottomText = e.name;
+            // bottom line: requester name + source tag + difficulty
+            std::string bottomText = e.name + sourceTag(e.source);
             if (!e.levelId.empty() && !e.gdDifficulty.empty() && e.gdDifficulty != "na") {
-                // format difficulty nicely
                 std::string diff = e.gdDifficulty;
                 for (auto& ch : diff) if (ch == '_') ch = ' ';
-                // capitalize first letter of each word
                 bool cap = true;
                 for (auto& ch : diff) {
                     if (cap && ch >= 'a' && ch <= 'z') ch -= 32;
@@ -311,7 +325,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
             }
             auto bottomLbl = CCLabelBMFont::create(bottomText.c_str(), "bigFont.fnt", 200.f);
             bottomLbl->setScale(0.30f);
-            bottomLbl->setColor({180, 180, 200});
+            bottomLbl->setColor(sourceColor(e.source));
             bottomLbl->setAnchorPoint({0.f, 0.5f});
             bottomLbl->setPosition({28.f, inner / 2.f - 9.f});
 
@@ -406,9 +420,8 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         // prev/next buttons when there's more than one page
         if (totalPages > 1) {
             auto navMenu = CCMenu::create();
-            navMenu->setTag(902);
             navMenu->setPosition({0.f, 0.f});
-            m_mainLayer->addChild(navMenu);
+            root->addChild(navMenu);
 
             float navY = 18.f;
 
@@ -417,9 +430,8 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
                 "goldFont.fnt", 200.f
             );
             pageLbl->setScale(0.3f);
-            pageLbl->setTag(903);
             pageLbl->setPosition({sz.width / 2.f, navY});
-            m_mainLayer->addChild(pageLbl);
+            root->addChild(pageLbl);
 
             if (m_page > 0) {
                 auto prevLbl = CCLabelBMFont::create("< Prev", "bigFont.fnt", 100.f);
@@ -479,9 +491,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         }
         m_entries.erase(m_entries.begin() + idx);
         if (m_entries.empty()) {
-            auto remaining = m_entries;
-            onClose(nullptr);
-            QueuePopup::create(std::move(remaining))->show();
+            buildEmpty();
             return;
         }
         buildPage();
@@ -570,7 +580,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         banHelper->autorelease();
         banHelper->cancelled = cancelled;
         banHelper->levelId   = lvlIdCopy;
-        // Retain so it survives the 5s delay
+        // Retain so it survives the 5s delay uwu
         banHelper->retain();
         auto banNode = CCNode::create();
         CCDirector::get()->getRunningScene()->addChild(banNode);
@@ -583,8 +593,7 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         banHelper->release();
 
         if (m_entries.empty()) {
-            onClose(nullptr);
-            QueuePopup::create({})->show();
+            buildEmpty();
             return;
         }
         buildPage();
@@ -593,23 +602,18 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
 
     // confirm before nuking the whole queue
     void onRemoveAll(CCObject*) {
-        auto alert = FLAlertLayer::create(
-            this,
+        geode::createQuickPopup(
             "Remove All",
             "Are you sure you want to <cr>remove all</c> pending requests?",
-            "Cancel",
-            "Remove All"
+            "Cancel", "Remove All",
+            [this](auto, bool btn2) {
+                if (!btn2) return;
+                sendQueueRemoveAll();
+                g_queueLevelIds.clear();
+                m_entries.clear();
+                buildEmpty();
+            }
         );
-        alert->show();
-    }
-
-    void FLAlert_Clicked(FLAlertLayer*, bool btn2) override {
-        if (!btn2) return;
-        sendQueueRemoveAll();
-        g_queueLevelIds.clear();
-        m_entries.clear();
-        onClose(nullptr);
-        QueuePopup::create({})->show();
     }
 
     // open a youtube link in browser
@@ -623,20 +627,18 @@ class QueuePopup : public geode::Popup, public FLAlertLayerProtocol {
         CCApplication::sharedApplication()->openURL(url.c_str());
     }
 
-    ~QueuePopup() override {
+    ~QueuePopup() {
         g_fetchInProgress = false;
     }
 
 public:
-    // show immediately with a loading spinner
-    static QueuePopup* createLoading() {
+    static QueuePopup* createLoading() { // show popup directly
         auto p = new QueuePopup();
-        if (p->init({}, true)) { p->autorelease(); return p; }
+        if (p->init(std::vector<QueueEntry>{}, true)) { p->autorelease(); return p; }
         CC_SAFE_DELETE(p);
         return nullptr;
     }
 
-    // show with entries directly (no loading state)
     static QueuePopup* create(std::vector<QueueEntry> entries) {
         auto p = new QueuePopup();
         if (p->init(std::move(entries), false)) { p->autorelease(); return p; }
@@ -644,27 +646,12 @@ public:
         return nullptr;
     }
 
-    // called after fetch completes to swap out the spinner for real content
     void populate(std::vector<QueueEntry> entries) {
         m_loading = false;
         m_entries = std::move(entries);
-        // remove the loading circle (it's a child of m_mainLayer)
-        m_mainLayer->removeAllChildrenWithCleanup(true);
-        // re-add the dim overlay
-        auto sz = m_mainLayer->getContentSize();
-        auto popupOverlay = CCDrawNode::create();
-        {
-            CCPoint v[] = {{0,0},{sz.width,0},{sz.width,sz.height},{0,sz.height}};
-            popupOverlay->drawPolygon(v, 4, {0.0f,0.0f,0.0f,0.45f}, 0.f, {0,0,0,0});
-        }
-        m_mainLayer->addChild(popupOverlay, -2);
-        if (m_entries.empty()) {
-            auto lbl = CCLabelBMFont::create("Your queue is empty!", "bigFont.fnt", 280.f);
-            lbl->setScale(0.5f);
-            lbl->setPosition(sz / 2);
-            m_mainLayer->addChild(lbl);
-            return;
-        }
+        if (auto spinnerRoot = m_mainLayer->getChildByTag(LOADING_CIRCLE_TAG))
+            spinnerRoot->removeFromParent();
+        if (m_entries.empty()) { buildEmpty(); return; }
         buildPage();
     }
 };
@@ -732,6 +719,7 @@ void fetchAndShowQueue() {
                     qe.youtubeUrl   = item["youtube_url"].asString().unwrapOr("");
                     qe.levelName    = item["level_name"].asString().unwrapOr("");
                     qe.gdDifficulty = item["gd_difficulty"].asString().unwrapOr("");
+                    qe.source       = item["source"].asString().unwrapOr(""); // "twitch" or "youtube"
                     if (!qe.levelId.empty() || !qe.youtubeUrl.empty()) {
                         if (!qe.levelId.empty()) {
                             g_queueLevelIds.insert(qe.levelId);
@@ -1015,22 +1003,23 @@ struct $modify(GDReqPauseLayer, PauseLayer) {
     }
 };
 
-// main menu button
+// main menu button — added into the existing right-side-menu so layout handles positioning
 struct $modify(GDReqMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
 
-        auto ws = CCDirector::get()->getWinSize();
+        // FIX: get the right-side-menu that Geode/NodeIDs sets up, and add our button there.
+        // updateLayout() repositions all children automatically — no manual coordinate math needed.
+        auto rightMenu = this->getChildByID("right-side-menu");
+        if (!rightMenu) return true; // safety: nothing to attach to
 
-        auto logo = CCSprite::create("logo.png"_spr);
         CCNode* btnContent;
+        auto logo = CCSprite::create("logo.png"_spr);
         if (logo) {
             const float targetSize = 35.f;
-            float scale = targetSize / logo->getContentSize().width;
-            logo->setScale(scale);
+            logo->setScale(targetSize / logo->getContentSize().width);
             btnContent = logo;
         } else {
-            // fallback if logo.png is missing
             auto lbl = CCLabelBMFont::create("GD Req", "goldFont.fnt", 160.f);
             lbl->setScale(0.7f);
             btnContent = lbl;
@@ -1041,10 +1030,8 @@ struct $modify(GDReqMenuLayer, MenuLayer) {
         );
         btn->setID("gd-requests-btn");
 
-        auto menu = CCMenu::create();
-        menu->addChild(btn);
-        menu->setPosition({ws.width - 42.f, ws.height - 65.f});
-        addChild(menu, 10);
+        rightMenu->addChild(btn);
+        rightMenu->updateLayout();
 
         return true;
     }
